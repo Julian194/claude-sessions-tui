@@ -22,22 +22,42 @@ new="$major.$minor.$patch"
 echo "New version: $new"
 echo ""
 
-# Get commits since last tag
+# Get commits since last tag and categorize
 echo "Changes since v$current:"
-commits=$(git log "v$current"..HEAD --pretty=format:"- %s" 2>/dev/null || git log --pretty=format:"- %s" -10)
+commits=$(git log "v$current"..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s" -10)
 echo "$commits"
 echo ""
+
+# Categorize commits by prefix
+added=""
+changed=""
+fixed=""
+removed=""
+
+while IFS= read -r commit; do
+  # Strip prefix and clean up
+  msg=$(echo "$commit" | sed 's/^[a-z]*: //' | sed 's/^[a-z]*(//' | sed 's/):/: /')
+
+  case "$commit" in
+    feat:*|feat\(*) added="$added\n- $msg" ;;
+    fix:*|fix\(*)   fixed="$fixed\n- $msg" ;;
+    remove:*|removed:*) removed="$removed\n- $msg" ;;
+    *)              changed="$changed\n- $msg" ;;
+  esac
+done <<< "$commits"
 
 # Create temp file for changelog entry
 tmpfile=$(mktemp)
 today=$(date +%Y-%m-%d)
-cat > "$tmpfile" << EOF
-## [$new] - $today
 
-### Changed
-$commits
-
-EOF
+{
+  echo "## [$new] - $today"
+  echo ""
+  [ -n "$added" ] && echo "### Added" && echo -e "$added" && echo ""
+  [ -n "$changed" ] && echo "### Changed" && echo -e "$changed" && echo ""
+  [ -n "$fixed" ] && echo "### Fixed" && echo -e "$fixed" && echo ""
+  [ -n "$removed" ] && echo "### Removed" && echo -e "$removed" && echo ""
+} > "$tmpfile"
 
 # Open editor for user to refine
 echo "Opening editor to refine changelog..."

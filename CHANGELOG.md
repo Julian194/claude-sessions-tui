@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.2] - 2025-12-12
 
-### Changed
-- fix: improve release script with auto-changelog from commits, fix 0.2.1 changelog
+### Fixed
+- Improve release script with auto-changelog from commits
+- Fix 0.2.1 changelog
+
 ## [0.2.1] - 2025-12-12
 
 ### Added
