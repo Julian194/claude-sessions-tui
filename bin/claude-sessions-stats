@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""
+Analyze Claude Code session files and display statistics.
+"""
+import json
+import sys
+import os
+from collections import Counter
+from pathlib import Path
+
+
+def find_session(sid: str) -> Path | None:
+    """Find session file by ID across all projects."""
+    claude_dir = os.environ.get("CLAUDE_DIR", str(Path.home() / ".claude"))
+    for f in Path(claude_dir).glob(f"projects/*/{sid}.jsonl"):
+        return f
+    return None
+
+
+def analyze_session(filepath: Path) -> dict:
+    """Parse session JSONL and extract statistics."""
+    tools = Counter()
+    input_tokens = 0
+    output_tokens = 0
+    cache_read = 0
+    cache_create = 0
+    user_messages = 0
+    assistant_messages = 0
+    subagents = []
+
+    with open(filepath) as fp:
+        for line in fp:
+            try:
+                data = json.loads(line)
+                msg = data.get("message", {})
+                role = msg.get("role")
+                content = msg.get("content", [])
+
+                # Count messages
+                if role == "user":
+                    user_messages += 1
+                elif role == "assistant":
+                    assistant_messages += 1
+
+                # Token usage
+                usage = msg.get("usage", {})
+                input_tokens += usage.get("input_tokens", 0)
+                output_tokens += usage.get("output_tokens", 0)
+                cache_read += usage.get("cache_read_input_tokens", 0)
+                cache_create += usage.get("cache_creation_input_tokens", 0)
+
+                # Tool usage
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "tool_use":
+                            tool_name = item.get("name", "unknown")
+                            tools[tool_name] += 1
+
+                            # Track subagent details
+                            if tool_name == "Task":
+                                inp = item.get("input", {})
+                                subagents.append(inp.get("description", "unknown"))
+
+            except json.JSONDecodeError:
+                continue
+
+    # Calculate cost (approximate Claude pricing)
+    # Sonnet: $3/M input, $15/M output
+    total_input = input_tokens + cache_create
+    cost = (total_input * 3 + output_tokens * 15) / 1_000_000
+    cache_savings = (cache_read * 3 * 0.9) / 1_000_000  # 90% discount on cache reads
+
+    return {
+        "user_messages": user_messages,
+        "assistant_messages": assistant_messages,
+        "tools": tools,
+        "subagents": subagents,
+        "input_tokens": total_input,
+        "output_tokens": output_tokens,
+        "cache_read": cache_read,
+        "cost": cost,
+        "cache_savings": cache_savings,
+    }
+
+
+def format_stats(stats: dict, mode: str = "preview") -> str:
+    """Format statistics for display."""
+    lines = []
+
+    total_tools = sum(stats["tools"].values())
+    top_tools = ", ".join(f"{t}:{c}" for t, c in stats["tools"].most_common(4))
+
+    if mode == "preview":
+        lines.append("━━━ Stats ━━━")
+        lines.append(f"💬 {stats['user_messages']} messages")
+        lines.append(f"🔧 {total_tools} tool calls ({top_tools})")
+        if stats["subagents"]:
+            lines.append(f"🤖 {len(stats['subagents'])} subagents")
+        tokens_k = (stats["input_tokens"] + stats["output_tokens"]) / 1000
+        lines.append(f"📊 {tokens_k:.0f}k tokens (~${stats['cost']:.2f})")
+    else:
+        # Full format for export
+        lines.append(f"Messages: {stats['user_messages']} user, {stats['assistant_messages']} assistant")
+        lines.append(f"Tool calls: {total_tools}")
+        for tool, count in stats["tools"].most_common():
+            lines.append(f"  • {tool}: {count}")
+        if stats["subagents"]:
+            lines.append(f"Subagents: {len(stats['subagents'])}")
+            for desc in stats["subagents"]:
+                lines.append(f"  • {desc}")
+        total_tokens = stats['input_tokens'] + stats['output_tokens']
+        lines.append(f"Tokens: {total_tokens // 1000}k total ({stats['input_tokens']:,} in / {stats['output_tokens']:,} out)")
+        lines.append(f"Cache: {stats['cache_read']:,} read (saved ~${stats['cache_savings']:.2f})")
+        lines.append(f"Est. cost: ${stats['cost']:.2f}")
+
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: claude-sessions-stats <session-id> [--full]")
+        sys.exit(1)
+
+    sid = sys.argv[1]
+    mode = "full" if "--full" in sys.argv else "preview"
+
+    filepath = find_session(sid)
+    if not filepath:
+        print("Session not found")
+        sys.exit(1)
+
+    stats = analyze_session(filepath)
+    print(format_stats(stats, mode))

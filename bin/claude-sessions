@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+CACHE="$CLAUDE_DIR/sessions-cache.tsv"
+
+# Rebuild cache if older than 1 hour or missing
+if [ ! -f "$CACHE" ]; then
+  claude-sessions-rebuild > /dev/null 2>&1
+else
+  # macOS uses -f %m, Linux uses -c %Y
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    cache_mtime=$(stat -f %m "$CACHE")
+  else
+    cache_mtime=$(stat -c %Y "$CACHE")
+  fi
+  now=$(date +%s)
+  if [ $(( now - cache_mtime )) -gt 3600 ]; then
+    claude-sessions-rebuild > /dev/null 2>&1
+  fi
+fi
+
+# Calculate cache age
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  cache_mtime=$(stat -f %m "$CACHE")
+else
+  cache_mtime=$(stat -c %Y "$CACHE")
+fi
+cache_age=$(( $(date +%s) - cache_mtime ))
+
+if [ $cache_age -lt 60 ]; then
+  age_str="${cache_age}s ago"
+elif [ $cache_age -lt 3600 ]; then
+  age_str="$((cache_age / 60))m ago"
+else
+  age_str="$((cache_age / 3600))h ago"
+fi
+
+result=$(fzf < "$CACHE" \
+  --delimiter=$'\t' \
+  --with-nth=2,3,4 \
+  --preview='claude-sessions-preview {1}' \
+  --preview-window=right:50%:wrap \
+  --header="enter=resume | ctrl-o=export | ctrl-r=refresh | cache: $age_str" \
+  --bind='ctrl-r:reload(claude-sessions-rebuild)' \
+  --expect=enter,ctrl-o)
+
+key=$(echo "$result" | head -1)
+line=$(echo "$result" | tail -n +2)
+
+[ -z "$line" ] && exit 0
+
+sid=$(echo "$line" | cut -f1)
+
+case "$key" in
+  ctrl-o)
+    claude-sessions-export "$sid"
+    ;;
+  *)
+    f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
+    cwd=$(grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"cwd":"//g;s/"$//g')
+    if [ -n "$cwd" ] && [ -d "$cwd" ]; then
+      cd "$cwd" && claude --resume "$sid"
+    else
+      claude --resume "$sid"
+    fi
+    ;;
+esac

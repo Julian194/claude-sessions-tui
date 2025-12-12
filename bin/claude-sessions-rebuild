@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+CACHE="$CLAUDE_DIR/sessions-cache.tsv"
+PROJECTS="$CLAUDE_DIR/projects"
+
+# Ensure cache directory exists
+mkdir -p "$(dirname "$CACHE")"
+
+# Cross-platform file listing by modification time
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  # macOS
+  ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-' | while read -r f; do
+    sid=$(basename "$f" .jsonl)
+    proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
+    date=$(stat -f "%Sm" -t "%m-%d" "$f")
+    summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//')
+    [ -z "$summary" ] && summary="-"
+    printf '%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary"
+  done | tee "$CACHE"
+else
+  # Linux
+  find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
+    sort -rn | cut -d' ' -f2- | grep -v 'agent-' | while read -r f; do
+    sid=$(basename "$f" .jsonl)
+    proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
+    date=$(date -r "$f" "+%m-%d")
+    summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//')
+    [ -z "$summary" ] && summary="-"
+    printf '%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary"
+  done | tee "$CACHE"
+fi

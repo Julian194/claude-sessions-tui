@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+
+sid="$1"
+f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
+[ -z "$f" ] && exit 0
+
+# Project and date - cross-platform
+proj=$(basename "$(dirname "$f")" | sed 's/-Users-[^-]*-code-//')
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  date=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
+else
+  date=$(date -r "$f" '+%Y-%m-%d %H:%M')
+fi
+branch=$(grep -o '"gitBranch":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"gitBranch":"//g;s/"$//g')
+
+echo "🔑 $sid"
+echo "📁 $proj"
+echo "📅 $date"
+[ -n "$branch" ] && echo "🌿 $branch"
+echo ""
+
+# Summaries
+summaries=$(grep -o '"summary":"[^"]*"' "$f" 2>/dev/null | sed 's/"summary":"//g;s/"$//g')
+if [ -n "$summaries" ]; then
+  echo "━━━ Topics ━━━"
+  echo "$summaries" | while read -r s; do
+    echo "• $s"
+  done
+  echo ""
+fi
+
+# Files touched (from Write/Edit tool calls) - show path relative to project
+cwd=$(grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"cwd":"//g;s/"$//g')
+files=$(grep -o '"file_path":"[^"]*"' "$f" 2>/dev/null | \
+  sed 's/"file_path":"//g;s/"$//g' | \
+  sort -u | \
+  sed "s|$cwd/||" | \
+  head -10)
+if [ -n "$files" ]; then
+  echo "━━━ Files ━━━"
+  echo "$files" | while read -r p; do
+    echo "• $p"
+  done
+  echo ""
+fi
+
+# Stats
+claude-sessions-stats "$sid" 2>/dev/null
+echo ""
+
+# If no topics, show first user message
+if [ -z "$summaries" ]; then
+  echo "━━━ First Message ━━━"
+  grep -o '"role":"user","content":"[^"]*"' "$f" 2>/dev/null | \
+    head -1 | \
+    sed 's/"role":"user","content":"//g;s/"$//g;s/\\n/ /g' | \
+    cut -c1-200
+fi

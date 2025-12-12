@@ -1,0 +1,866 @@
+#!/usr/bin/env bash
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+
+sid="$1"
+f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
+[ -z "$f" ] && echo "Session not found" && exit 1
+
+# Metadata
+proj=$(basename "$(dirname "$f")" | sed 's/-Users-[^-]*-code-//')
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  date=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
+else
+  date=$(date -r "$f" '+%Y-%m-%d %H:%M')
+fi
+branch=$(grep -o '"gitBranch":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"gitBranch":"//g;s/"$//g')
+
+# Get stats
+stats_output=$(claude-sessions-stats "$sid" --full 2>/dev/null)
+msg_count=$(echo "$stats_output" | grep "Messages:" | grep -o '[0-9]* user' | grep -o '[0-9]*')
+tool_count=$(echo "$stats_output" | grep "Tool calls:" | grep -o '[0-9]*')
+tokens=$(echo "$stats_output" | grep "Tokens:" | grep -o '[0-9]*k total' | grep -o '[0-9]*k')
+cost=$(echo "$stats_output" | grep "Est. cost:" | grep -o '\$[0-9.]*')
+
+output="/tmp/claude-session-${sid:0:8}.html"
+
+# Write HTML header
+cat > "$output" << HEADER
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>$proj // Claude Session</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-void: #08080c;
+      --bg-surface: #0d0d12;
+      --bg-elevated: #141419;
+      --bg-hover: #1a1a21;
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-accent: rgba(255,255,255,0.12);
+      --text-primary: #e8e8ed;
+      --text-secondary: #8b8b96;
+      --text-muted: #5c5c66;
+      --accent-cyan: #4ecdc4;
+      --accent-amber: #ffb347;
+      --accent-rose: #ff6b8a;
+      --accent-violet: #a78bfa;
+      --mono: 'JetBrains Mono', 'SF Mono', monospace;
+      --serif: 'Newsreader', Georgia, serif;
+      --sans: 'Instrument Sans', -apple-system, sans-serif;
+      --grid-opacity: 0.4;
+      --glow-color: rgba(78,205,196,0.03);
+    }
+
+    [data-theme="light"] {
+      --bg-void: #f8f7f4;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f0efe9;
+      --bg-hover: #e8e6df;
+      --border-subtle: rgba(0,0,0,0.06);
+      --border-accent: rgba(0,0,0,0.12);
+      --text-primary: #1a1a1f;
+      --text-secondary: #5c5c66;
+      --text-muted: #8b8b96;
+      --accent-cyan: #0d9488;
+      --accent-amber: #d97706;
+      --accent-rose: #e11d48;
+      --accent-violet: #7c3aed;
+      --grid-opacity: 0.25;
+      --glow-color: rgba(13,148,136,0.04);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      font-size: 15px;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg-void);
+      color: var(--text-primary);
+      line-height: 1.7;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* Subtle grid texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border-subtle) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      opacity: var(--grid-opacity);
+      z-index: -1;
+    }
+
+    /* Gradient glow */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -20%;
+      width: 80%;
+      height: 100%;
+      background: radial-gradient(ellipse at center, var(--glow-color) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .container {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* Header */
+    .header {
+      padding: 4rem 0 3rem;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 3rem;
+      position: relative;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      width: 120px;
+      height: 1px;
+      background: var(--accent-cyan);
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent-cyan);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .eyebrow::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    .header h1 {
+      font-family: var(--serif);
+      font-size: 2.8rem;
+      font-weight: 400;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+      line-height: 1.1;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .meta-item:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-hover);
+    }
+
+    .meta-item.highlight-cost {
+      border-color: rgba(78,205,196,0.25);
+      color: var(--accent-cyan);
+    }
+
+    [data-theme="light"] .meta-item.highlight-cost {
+      border-color: rgba(13,148,136,0.3);
+    }
+
+    .meta-icon {
+      font-size: 0.85rem;
+      opacity: 0.7;
+    }
+
+    /* Messages */
+    #messages {
+      padding-bottom: 6rem;
+    }
+
+    .message {
+      position: relative;
+      margin: 2.5rem 0;
+      padding: 1.75rem 2rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 3px;
+      height: 100%;
+      border-radius: 2px 0 0 2px;
+    }
+
+    .user::before { background: var(--accent-amber); }
+    .assistant::before { background: var(--accent-cyan); }
+
+    .user {
+      margin-left: 4rem;
+      border-color: rgba(255,179,71,0.15);
+    }
+
+    .assistant {
+      margin-right: 4rem;
+      border-color: rgba(78,205,196,0.1);
+    }
+
+    .role {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .user .role { color: var(--accent-amber); }
+    .assistant .role { color: var(--accent-cyan); }
+
+    .role::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-subtle);
+      max-width: 60px;
+    }
+
+    .content {
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      line-height: 1.8;
+      color: var(--text-primary);
+    }
+
+    .content p { margin: 0.8rem 0; }
+    .content p:first-child { margin-top: 0; }
+    .content p:last-child { margin-bottom: 0; }
+
+    .content strong {
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .content em {
+      font-style: italic;
+      color: var(--text-secondary);
+    }
+
+    .content ul, .content ol {
+      margin: 1rem 0;
+      padding-left: 1.5rem;
+    }
+
+    .content li {
+      margin: 0.4rem 0;
+    }
+
+    .content a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(78,205,196,0.3);
+      transition: border-color 0.2s;
+    }
+
+    .content a:hover {
+      border-color: var(--accent-cyan);
+    }
+
+    /* Code */
+    .content code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--bg-elevated);
+      padding: 0.2rem 0.5rem;
+      border-radius: 3px;
+      border: 1px solid var(--border-subtle);
+      color: var(--accent-rose);
+    }
+
+    .content pre {
+      margin: 1.25rem 0;
+      padding: 1.25rem 1.5rem;
+      background: var(--bg-void) !important;
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .content pre::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-violet), var(--accent-rose), var(--accent-amber));
+      border-radius: 4px 4px 0 0;
+    }
+
+    .content pre code {
+      background: none !important;
+      border: none;
+      padding: 0;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+
+    /* Tools */
+    .tool {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 0.75rem 0;
+      padding: 0.6rem 1rem;
+      background: var(--bg-void);
+      border: 1px solid var(--border-subtle);
+      border-left: 2px solid var(--accent-violet);
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      transition: all 0.2s ease;
+    }
+
+    .tool:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-accent);
+    }
+
+    .tool-name {
+      color: var(--accent-violet);
+      font-weight: 500;
+    }
+
+    .tool-file {
+      color: var(--text-muted);
+    }
+
+    /* Summary */
+    .summary {
+      position: relative;
+      margin: 2rem 0;
+      padding: 1.25rem 1.5rem 1.25rem 3rem;
+      background: linear-gradient(135deg, rgba(167,139,250,0.05) 0%, rgba(78,205,196,0.03) 100%);
+      border: 1px solid rgba(167,139,250,0.15);
+      border-radius: 4px;
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .summary::before {
+      content: '∑';
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: var(--serif);
+      font-size: 1.2rem;
+      font-style: normal;
+      color: var(--accent-violet);
+      opacity: 0.7;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-void);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--bg-hover);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    /* Search */
+    .search-container {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 1rem 0;
+      margin-bottom: 1rem;
+      background: linear-gradient(to bottom, var(--bg-void) 0%, var(--bg-void) 70%, transparent 100%);
+    }
+
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      width: 18px;
+      height: 18px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.85rem 1rem 0.85rem 2.75rem;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      color: var(--text-primary);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(78,205,196,0.1);
+    }
+
+    [data-theme="light"] .search-input:focus {
+      box-shadow: 0 0 0 3px rgba(13,148,136,0.1);
+    }
+
+    .search-meta {
+      position: absolute;
+      right: 1rem;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .search-count {
+      padding: 0.2rem 0.5rem;
+      background: var(--bg-elevated);
+      border-radius: 3px;
+    }
+
+    .search-clear {
+      padding: 0.2rem 0.4rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      transition: color 0.15s ease;
+    }
+
+    .search-clear:hover {
+      color: var(--text-primary);
+    }
+
+    /* Highlight matches */
+    .highlight {
+      background: rgba(255,179,71,0.3);
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    [data-theme="light"] .highlight {
+      background: rgba(217,119,6,0.25);
+    }
+
+    .highlight.current {
+      background: var(--accent-amber);
+      color: var(--bg-void);
+    }
+
+    .message.has-match {
+      border-color: var(--accent-amber);
+    }
+
+    .message.hidden-by-search {
+      display: none;
+    }
+
+    /* Theme Toggle */
+    .theme-toggle {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 50%;
+      background: var(--bg-elevated);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      z-index: 100;
+    }
+
+    .theme-toggle:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-hover);
+      transform: scale(1.05);
+    }
+
+    .theme-toggle svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--text-secondary);
+      transition: all 0.3s ease;
+    }
+
+    .theme-toggle:hover svg {
+      fill: var(--text-primary);
+    }
+
+    .theme-toggle .sun { display: none; }
+    .theme-toggle .moon { display: block; }
+
+    [data-theme="light"] .theme-toggle .sun { display: block; }
+    [data-theme="light"] .theme-toggle .moon { display: none; }
+
+    /* Light mode code block adjustments */
+    [data-theme="light"] .content pre {
+      background: #f5f4f0 !important;
+    }
+
+    [data-theme="light"] .content pre code {
+      color: var(--text-primary);
+    }
+
+    [data-theme="light"] .tool {
+      background: var(--bg-elevated);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container { padding: 0 1.25rem; }
+      .header { padding: 2.5rem 0 2rem; }
+      .header h1 { font-size: 2rem; }
+      .user, .assistant { margin-left: 0; margin-right: 0; }
+      .message { padding: 1.25rem 1.5rem; }
+      .meta { gap: 0.4rem; }
+      .meta-item { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+      .theme-toggle { top: 1rem; right: 1rem; width: 38px; height: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+    <svg class="moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <div class="container">
+    <div class="header">
+      <div class="eyebrow">Session Transcript</div>
+      <h1>$proj</h1>
+      <div class="meta">
+        <span class="meta-item"><span class="meta-icon">◉</span> $date</span>
+        <span class="meta-item"><span class="meta-icon">⎇</span> $branch</span>
+        <span class="meta-item"><span class="meta-icon">#</span> ${sid:0:8}</span>
+        <span class="meta-item"><span class="meta-icon">◇</span> $msg_count msgs</span>
+        <span class="meta-item"><span class="meta-icon">⚙</span> $tool_count tools</span>
+        <span class="meta-item"><span class="meta-icon">≡</span> $tokens tokens</span>
+        <span class="meta-item highlight-cost"><span class="meta-icon">≈</span> $cost</span>
+      </div>
+    </div>
+    <div class="search-container">
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search messages..." autocomplete="off">
+        <div class="search-meta" id="searchMeta" style="display: none;">
+          <span class="search-count" id="searchCount"></span>
+          <button class="search-clear" onclick="clearSearch()">×</button>
+        </div>
+      </div>
+    </div>
+    <div id="messages"></div>
+  </div>
+  <script>
+HEADER
+
+# Write JavaScript separately with quoted heredoc to prevent variable expansion
+cat >> "$output" << 'JSBLOCK'
+    // Theme toggle with localStorage persistence
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-theme', newTheme === 'dark' ? '' : 'light');
+      localStorage.setItem('claude-session-theme', newTheme);
+    }
+
+    // Load saved theme preference
+    (function() {
+      const saved = localStorage.getItem('claude-session-theme');
+      if (saved === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+
+    // Search functionality - stores original HTML for each message
+    const originalHTML = new Map();
+
+    const messages = [];
+JSBLOCK
+
+# Process messages with Python - output as JSON
+python3 << PYEOF >> "$output"
+import json
+
+with open("$f") as fp:
+    for line in fp:
+        try:
+            data = json.loads(line)
+
+            if data.get("type") == "summary":
+                summary = data.get("summary", "")
+                print(f'    messages.push({{type: "summary", text: {json.dumps(summary)}}});')
+                continue
+
+            msg = data.get("message", {})
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if role == "user" and isinstance(content, str):
+                # Skip system messages and XML tags
+                if content.startswith("Caveat:") or content.startswith("<"):
+                    continue
+                print(f'    messages.push({{type: "user", text: {json.dumps(content)}}});')
+
+            elif role == "assistant" and isinstance(content, list):
+                texts = []
+                tools = []
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            if text:
+                                texts.append(text)
+                        elif item.get("type") == "tool_use":
+                            tool_name = item.get("name", "tool")
+                            tool_input = item.get("input", {})
+                            file_path = tool_input.get("file_path", "")
+                            if file_path:
+                                file_short = file_path.split("/")[-1]
+                                tools.append(f"{tool_name}: {file_short}")
+
+                if texts or tools:
+                    print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}}});')
+
+        except json.JSONDecodeError:
+            continue
+PYEOF
+
+# Write footer with rendering logic
+cat >> "$output" << 'FOOTER'
+
+    // Render messages with staggered animation
+    const container = document.getElementById('messages');
+    messages.forEach((msg, index) => {
+      const delay = Math.min(index * 50, 500);
+
+      if (msg.type === 'summary') {
+        container.innerHTML += `<div class="summary" style="animation-delay: ${delay}ms">${msg.text}</div>`;
+      } else if (msg.type === 'user') {
+        container.innerHTML += `
+          <div class="message user" style="animation-delay: ${delay}ms">
+            <div class="role">You</div>
+            <div class="content">${marked.parse(msg.text)}</div>
+          </div>`;
+      } else if (msg.type === 'assistant') {
+        let toolsHtml = '';
+        if (msg.tools && msg.tools.length > 0) {
+          toolsHtml = msg.tools.map(t => {
+            const parts = t.split(':');
+            const name = parts[0] || '';
+            const file = parts[1] ? parts[1].trim() : '';
+            return `<div class="tool"><span class="tool-name">${name}</span>${file ? `<span class="tool-file">${file}</span>` : ''}</div>`;
+          }).join('');
+        }
+        container.innerHTML += `
+          <div class="message assistant" style="animation-delay: ${delay}ms">
+            <div class="role">Claude</div>
+            <div class="content">${marked.parse(msg.text)}${toolsHtml}</div>
+          </div>`;
+      }
+    });
+
+    // Highlight code blocks
+    document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+
+    // Store original HTML for all messages
+    document.querySelectorAll('.message').forEach((msg, i) => {
+      originalHTML.set(i, msg.innerHTML);
+    });
+
+    // Search functions
+    function doSearch(query) {
+      const allMessages = document.querySelectorAll('.message');
+      const searchMeta = document.getElementById('searchMeta');
+      const searchCount = document.getElementById('searchCount');
+
+      // Reset all messages first
+      allMessages.forEach((msg, i) => {
+        msg.innerHTML = originalHTML.get(i);
+        msg.style.display = '';
+        msg.classList.remove('has-match');
+      });
+
+      if (!query || query.length < 2) {
+        searchMeta.style.display = 'none';
+        return;
+      }
+
+      const q = query.toLowerCase();
+      let matchCount = 0;
+
+      allMessages.forEach((msg, i) => {
+        const text = msg.textContent.toLowerCase();
+        if (text.includes(q)) {
+          matchCount++;
+          msg.classList.add('has-match');
+          // Highlight matches in the content
+          const content = msg.querySelector('.content');
+          if (content) {
+            const regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+            content.innerHTML = content.innerHTML.replace(regex, '<mark class="highlight">$1</mark>');
+          }
+        } else {
+          msg.style.display = 'none';
+        }
+      });
+
+      searchMeta.style.display = 'flex';
+      searchCount.textContent = matchCount + ' found';
+
+      // Scroll to first match
+      const firstMatch = document.querySelector('.message.has-match');
+      if (firstMatch) {
+        firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      const allMessages = document.querySelectorAll('.message');
+      allMessages.forEach((msg, i) => {
+        msg.innerHTML = originalHTML.get(i);
+        msg.style.display = '';
+        msg.classList.remove('has-match');
+      });
+      document.getElementById('searchMeta').style.display = 'none';
+    }
+
+    // Event listeners
+    let searchTimeout;
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => doSearch(e.target.value), 150);
+    });
+
+    document.getElementById('searchInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        clearSearch();
+        e.target.blur();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        document.getElementById('searchInput').focus();
+        document.getElementById('searchInput').select();
+      }
+    });
+  </script>
+</body>
+</html>
+FOOTER
+
+echo "$output"
+
+# Open in browser (cross-platform)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  open "$output"
+elif command -v xdg-open &> /dev/null; then
+  xdg-open "$output"
+elif command -v wslview &> /dev/null; then
+  wslview "$output"
+fi
