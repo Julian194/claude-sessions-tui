@@ -18,14 +18,14 @@ A terminal UI for browsing, searching, and exporting [Claude Code](https://claud
 ### Homebrew (recommended)
 
 ```bash
-brew tap yourusername/claude-sessions-tui
+brew tap Julian194/claude-sessions-tui
 brew install claude-sessions
 ```
 
 ### Manual installation
 
 ```bash
-git clone https://github.com/yourusername/claude-sessions-tui.git
+git clone https://github.com/Julian194/claude-sessions-tui.git
 cd claude-sessions-tui
 chmod +x bin/*
 

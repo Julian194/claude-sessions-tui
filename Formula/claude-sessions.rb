@@ -1,10 +1,9 @@
 class ClaudeSessions < Formula
   desc "TUI for browsing, searching, and exporting Claude Code sessions"
-  homepage "https://github.com/yourusername/claude-sessions-tui"
-  url "https://github.com/yourusername/claude-sessions-tui/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "PLACEHOLDER_SHA256"
+  homepage "https://github.com/Julian194/claude-sessions-tui"
+  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.1.0"
   license "MIT"
-  head "https://github.com/yourusername/claude-sessions-tui.git", branch: "main"
+  head "https://github.com/Julian194/claude-sessions-tui.git", branch: "main"
 
   depends_on "fzf"
   depends_on "python@3.11" => :recommended
