@@ -286,6 +286,14 @@ cat > "$output" << HEADER
       max-width: 60px;
     }
 
+    .timestamp {
+      margin-left: auto;
+      font-weight: 400;
+      color: var(--text-muted);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
     .content {
       font-family: var(--serif);
       font-size: 1.05rem;
@@ -698,11 +706,13 @@ with open("$f") as fp:
             role = msg.get("role")
             content = msg.get("content")
 
+            timestamp = data.get("timestamp", "")
+
             if role == "user" and isinstance(content, str):
                 # Skip system messages and XML tags
                 if content.startswith("Caveat:") or content.startswith("<"):
                     continue
-                print(f'    messages.push({{type: "user", text: {json.dumps(content)}}});')
+                print(f'    messages.push({{type: "user", text: {json.dumps(content)}, ts: {json.dumps(timestamp)}}});')
 
             elif role == "assistant" and isinstance(content, list):
                 texts = []
@@ -722,7 +732,7 @@ with open("$f") as fp:
                                 tools.append(f"{tool_name}: {file_short}")
 
                 if texts or tools:
-                    print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}}});')
+                    print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}, ts: {json.dumps(timestamp)}}});')
 
         except json.JSONDecodeError:
             continue
@@ -731,17 +741,26 @@ PYEOF
 # Write footer with rendering logic
 cat >> "$output" << 'FOOTER'
 
+    // Format timestamp
+    function formatTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
     // Render messages with staggered animation
     const container = document.getElementById('messages');
     messages.forEach((msg, index) => {
       const delay = Math.min(index * 50, 500);
+      const timeStr = formatTime(msg.ts);
+      const timeHtml = timeStr ? `<span class="timestamp">${timeStr}</span>` : '';
 
       if (msg.type === 'summary') {
         container.innerHTML += `<div class="summary" style="animation-delay: ${delay}ms">${msg.text}</div>`;
       } else if (msg.type === 'user') {
         container.innerHTML += `
           <div class="message user" style="animation-delay: ${delay}ms">
-            <div class="role">You</div>
+            <div class="role">You ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}</div>
           </div>`;
       } else if (msg.type === 'assistant') {
@@ -756,7 +775,7 @@ cat >> "$output" << 'FOOTER'
         }
         container.innerHTML += `
           <div class="message assistant" style="animation-delay: ${delay}ms">
-            <div class="role">Claude</div>
+            <div class="role">Claude ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}${toolsHtml}</div>
           </div>`;
       }
