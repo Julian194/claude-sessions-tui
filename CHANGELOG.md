@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.1] - 2025-12-12
 
-### Changed
-- Version bump
+### Added
+- `--dangerously-skip-permissions` flag on resume by default
+- Release script for automated versioning
+
+### Fixed
+- Timestamp layout in HTML export (removed extra line)
 
 ## [0.2.0] - 2024-12-12
 

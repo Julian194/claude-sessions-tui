@@ -20,19 +20,54 @@ esac
 
 new="$major.$minor.$patch"
 echo "New version: $new"
+echo ""
+
+# Get commits since last tag
+echo "Changes since v$current:"
+commits=$(git log "v$current"..HEAD --pretty=format:"- %s" 2>/dev/null || git log --pretty=format:"- %s" -10)
+echo "$commits"
+echo ""
+
+# Create temp file for changelog entry
+tmpfile=$(mktemp)
+today=$(date +%Y-%m-%d)
+cat > "$tmpfile" << EOF
+## [$new] - $today
+
+### Changed
+$commits
+
+EOF
+
+# Open editor for user to refine
+echo "Opening editor to refine changelog..."
+${EDITOR:-vim} "$tmpfile"
+
+# Show what will be added
+echo ""
+echo "Changelog entry:"
+cat "$tmpfile"
+echo ""
 
 # Confirm
-read -p "Release v$new? [y/N] " -n 1 -r
+read -p "Release v$new with this changelog? [y/N] " -n 1 -r
 echo
-[[ ! $REPLY =~ ^[Yy]$ ]] && exit 0
+[[ ! $REPLY =~ ^[Yy]$ ]] && rm "$tmpfile" && exit 0
 
 # Update formula
 sed -i '' "s/tag: \"v$current\"/tag: \"v$new\"/" Formula/claude-sessions.rb
 sed -i '' "s/version \"$current\"/version \"$new\"/" Formula/claude-sessions.rb
 
-# Update changelog
-today=$(date +%Y-%m-%d)
-sed -i '' "s/## \[$current\]/## [$new] - $today\n\n### Changed\n- Version bump\n\n## [$current]/" CHANGELOG.md
+# Update changelog - insert after line 7 (after the header)
+changelog_entry=$(cat "$tmpfile")
+rm "$tmpfile"
+
+# Create new changelog with entry inserted
+head -7 CHANGELOG.md > CHANGELOG.md.new
+echo "" >> CHANGELOG.md.new
+echo "$changelog_entry" >> CHANGELOG.md.new
+tail -n +8 CHANGELOG.md >> CHANGELOG.md.new
+mv CHANGELOG.md.new CHANGELOG.md
 
 # Commit and tag
 git add -A
