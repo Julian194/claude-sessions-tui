@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Get current version from formula
+current=$(grep 'version "' Formula/claude-sessions.rb | sed 's/.*version "//;s/".*//')
+echo "Current version: $current"
+
+# Parse version parts
+IFS='.' read -r major minor patch <<< "$current"
+
+# Bump patch by default, or accept argument
+case "${1:-patch}" in
+  major) major=$((major + 1)); minor=0; patch=0 ;;
+  minor) minor=$((minor + 1)); patch=0 ;;
+  patch) patch=$((patch + 1)) ;;
+  *) echo "Usage: release [major|minor|patch]"; exit 1 ;;
+esac
+
+new="$major.$minor.$patch"
+echo "New version: $new"
+
+# Confirm
+read -p "Release v$new? [y/N] " -n 1 -r
+echo
+[[ ! $REPLY =~ ^[Yy]$ ]] && exit 0
+
+# Update formula
+sed -i '' "s/tag: \"v$current\"/tag: \"v$new\"/" Formula/claude-sessions.rb
+sed -i '' "s/version \"$current\"/version \"$new\"/" Formula/claude-sessions.rb
+
+# Update changelog
+today=$(date +%Y-%m-%d)
+sed -i '' "s/## \[$current\]/## [$new] - $today\n\n### Changed\n- Version bump\n\n## [$current]/" CHANGELOG.md
+
+# Commit and tag
+git add -A
+git commit -m "release: v$new"
+git tag "v$new"
+git push && git push origin "v$new"
+
+# Update tap
+cp Formula/claude-sessions.rb ~/code/homebrew-tap/Formula/
+cd ~/code/homebrew-tap
+git add -A
+git commit -m "bump: claude-sessions v$new"
+git push
+
+echo ""
+echo "✓ Released v$new"
+echo "  Users can upgrade with: brew upgrade claude-sessions"

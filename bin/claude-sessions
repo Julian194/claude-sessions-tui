@@ -60,9 +60,9 @@ case "$key" in
     f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
     cwd=$(grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"cwd":"//g;s/"$//g')
     if [ -n "$cwd" ] && [ -d "$cwd" ]; then
-      cd "$cwd" && claude --resume "$sid"
+      cd "$cwd" && claude --resume "$sid" --dangerously-skip-permissions
     else
-      claude --resume "$sid"
+      claude --resume "$sid" --dangerously-skip-permissions
     fi
     ;;
 esac

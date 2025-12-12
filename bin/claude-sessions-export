@@ -278,14 +278,6 @@ cat > "$output" << HEADER
     .user .role { color: var(--accent-amber); }
     .assistant .role { color: var(--accent-cyan); }
 
-    .role::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--border-subtle);
-      max-width: 60px;
-    }
-
     .timestamp {
       margin-left: auto;
       font-weight: 400;
