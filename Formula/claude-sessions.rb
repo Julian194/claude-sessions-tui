@@ -1,8 +1,8 @@
 class ClaudeSessions < Formula
   desc "TUI for browsing, searching, and exporting Claude Code sessions"
   homepage "https://github.com/Julian194/claude-sessions-tui"
-  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.2.0"
-  version "0.2.0"
+  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.2.1"
+  version "0.2.1"
   license "MIT"
   head "https://github.com/Julian194/claude-sessions-tui.git", branch: "main"
 
