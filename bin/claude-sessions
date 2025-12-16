@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 CACHE="$CLAUDE_DIR/sessions-cache.tsv"
 
@@ -43,8 +46,8 @@ result=$(fzf < "$CACHE" \
   --preview-window=right:50%:wrap \
   --header="enter=resume | ctrl-o=export | ctrl-y=copy-md | ctrl-r=refresh | cache: $age_str" \
   --bind='ctrl-r:reload(claude-sessions-rebuild)' \
-  --bind="ctrl-y:execute-silent(claude-sessions-copy-md {1})+transform-header:echo 'Copied to clipboard!'" \
-  --bind="ctrl-o:execute-silent(claude-sessions-export {1})+transform-header:echo 'Exported! Opening browser...'" \
+  --bind="ctrl-y:execute-silent($SCRIPT_DIR/claude-sessions-copy-md {1})+transform-header:echo 'Copied to clipboard!'" \
+  --bind="ctrl-o:execute-silent($SCRIPT_DIR/claude-sessions-export {1})+transform-header:echo 'Exported! Opening browser...'" \
   --expect=enter)
 
 key=$(echo "$result" | head -1)
