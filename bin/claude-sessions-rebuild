@@ -5,29 +5,91 @@ CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 CACHE="$CLAUDE_DIR/sessions-cache.tsv"
 PROJECTS="$CLAUDE_DIR/projects"
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Ensure cache directory exists
 mkdir -p "$(dirname "$CACHE")"
 
-# Cross-platform file listing by modification time
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS
-  ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-' | while read -r f; do
-    sid=$(basename "$f" .jsonl)
-    proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
+# Temporary files
+TEMP_NEW="$CLAUDE_DIR/.cache-new-$$"
+TEMP_MERGED="$CLAUDE_DIR/.cache-merged-$$"
+trap 'rm -f "$TEMP_NEW" "$TEMP_MERGED" "$TEMP_MERGED.ids"' EXIT
+
+# Inline extraction function (faster than calling external script for each file)
+extract_meta() {
+  local f="$1"
+  [ ! -f "$f" ] && return
+  local sid proj date mtime summary
+  sid=$(basename "$f" .jsonl)
+  proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
+  if [[ "$OSTYPE" == "darwin"* ]]; then
     date=$(stat -f "%Sm" -t "%m-%d" "$f")
-    summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//')
-    [ -z "$summary" ] && summary="-"
-    printf '%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary"
-  done | tee "$CACHE"
-else
-  # Linux
-  find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
-    sort -rn | cut -d' ' -f2- | grep -v 'agent-' | while read -r f; do
-    sid=$(basename "$f" .jsonl)
-    proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
+    mtime=$(stat -f "%m" "$f")
+  else
     date=$(date -r "$f" "+%m-%d")
-    summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//')
-    [ -z "$summary" ] && summary="-"
-    printf '%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary"
-  done | tee "$CACHE"
+    mtime=$(stat -c "%Y" "$f")
+  fi
+  summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//' || true)
+  [ -z "$summary" ] && summary="-"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime"
+}
+export -f extract_meta
+
+# Check if incremental update is possible (cache exists, has content, and has mtime column)
+incremental=false
+if [ -f "$CACHE" ] && [ -s "$CACHE" ]; then
+  # Check if cache has 5 columns (new format with mtime)
+  if [ "$(head -1 "$CACHE" | awk -F'\t' '{print NF}')" -eq 5 ]; then
+    incremental=true
+  fi
+fi
+
+if $incremental; then
+  # Find only files newer than cache
+  newer_files=$(find "$PROJECTS" -name "*.jsonl" -newer "$CACHE" ! -name "agent-*" 2>/dev/null || true)
+
+  if [ -z "$newer_files" ]; then
+    # No changes - just output existing cache (already sorted)
+    cat "$CACHE"
+    exit 0
+  fi
+
+  # Count new files for parallel decision
+  new_count=$(echo "$newer_files" | wc -l | tr -d ' ')
+
+  if [ "$new_count" -gt 10 ]; then
+    # Many files: use parallel processing
+    echo "$newer_files" | xargs -P 8 -I {} bash -c 'extract_meta "$@"' _ {} > "$TEMP_NEW" 2>/dev/null || true
+  else
+    # Few files: sequential is faster (less overhead)
+    echo "$newer_files" | while read -r f; do
+      extract_meta "$f"
+    done > "$TEMP_NEW"
+  fi
+
+  # Get list of updated session IDs
+  updated_ids=$(cut -f1 "$TEMP_NEW")
+
+  # Filter old cache: keep entries that weren't updated
+  if [ -n "$updated_ids" ]; then
+    echo "$updated_ids" > "$TEMP_MERGED.ids"
+    grep -v -F -f "$TEMP_MERGED.ids" "$CACHE" > "$TEMP_MERGED" 2>/dev/null || true
+  else
+    cp "$CACHE" "$TEMP_MERGED"
+  fi
+
+  # Merge and sort by mtime (column 5, descending = newest first)
+  cat "$TEMP_NEW" "$TEMP_MERGED" | sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
+
+else
+  # Full rebuild - sequential (faster due to less overhead)
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-'
+  else
+    find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
+      sort -rn | cut -d' ' -f2- | grep -v 'agent-'
+  fi | while read -r f; do
+    extract_meta "$f"
+  done | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
 fi

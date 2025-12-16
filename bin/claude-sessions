@@ -1,49 +1,26 @@
 #!/usr/bin/env bash
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 CACHE="$CLAUDE_DIR/sessions-cache.tsv"
 
-# Rebuild cache if older than 1 hour or missing
-if [ ! -f "$CACHE" ]; then
-  claude-sessions-rebuild > /dev/null 2>&1
-else
-  # macOS uses -f %m, Linux uses -c %Y
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    cache_mtime=$(stat -f %m "$CACHE")
-  else
-    cache_mtime=$(stat -c %Y "$CACHE")
-  fi
-  now=$(date +%s)
-  if [ $(( now - cache_mtime )) -gt 3600 ]; then
-    claude-sessions-rebuild > /dev/null 2>&1
-  fi
-fi
-
-# Calculate cache age
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  cache_mtime=$(stat -f %m "$CACHE")
-else
-  cache_mtime=$(stat -c %Y "$CACHE")
-fi
-cache_age=$(( $(date +%s) - cache_mtime ))
-
-if [ $cache_age -lt 60 ]; then
-  age_str="${cache_age}s ago"
-elif [ $cache_age -lt 3600 ]; then
-  age_str="$((cache_age / 60))m ago"
-else
-  age_str="$((cache_age / 3600))h ago"
-fi
+# Always refresh cache on start (incremental update is very fast ~70ms)
+# This ensures we always have fresh data without noticeable delay
+"$SCRIPT_DIR/claude-sessions-rebuild" > /dev/null 2>&1
 
 result=$(fzf < "$CACHE" \
   --delimiter=$'\t' \
   --with-nth=2,3,4 \
-  --preview='claude-sessions-preview {1}' \
+  --preview="$SCRIPT_DIR/claude-sessions-preview {1}" \
   --preview-window=right:50%:wrap \
-  --header="enter=resume | ctrl-o=export | ctrl-r=refresh | cache: $age_str" \
-  --bind='ctrl-r:reload(claude-sessions-rebuild)' \
-  --expect=enter,ctrl-o)
+  --header="enter=resume | ctrl-o=export | ctrl-y=copy-md | ctrl-r=refresh" \
+  --bind="ctrl-r:reload($SCRIPT_DIR/claude-sessions-rebuild)" \
+  --bind="ctrl-y:execute-silent($SCRIPT_DIR/claude-sessions-copy-md {1})+transform-header:echo 'Copied to clipboard!'" \
+  --bind="ctrl-o:execute-silent($SCRIPT_DIR/claude-sessions-export {1})+transform-header:echo 'Exported! Opening browser...'" \
+  --expect=enter)
 
 key=$(echo "$result" | head -1)
 line=$(echo "$result" | tail -n +2)
@@ -53,9 +30,6 @@ line=$(echo "$result" | tail -n +2)
 sid=$(echo "$line" | cut -f1)
 
 case "$key" in
-  ctrl-o)
-    claude-sessions-export "$sid"
-    ;;
   *)
     f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
     cwd=$(grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"cwd":"//g;s/"$//g')
