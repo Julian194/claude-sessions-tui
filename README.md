@@ -10,6 +10,7 @@ A terminal UI for browsing, searching, and exporting [Claude Code](https://claud
 - **Preview pane** showing topics, files touched, and stats
 - **Resume sessions** directly from the TUI
 - **Export to HTML** with dark/light themes, search, and syntax highlighting
+- **Copy as Markdown** - LLM-optimized format copied to clipboard
 - **Session statistics** including token usage, tool calls, and cost estimates
 - **Cross-platform** support for macOS and Linux
 
@@ -53,6 +54,7 @@ claude-sessions
 |-----|--------|
 | `Enter` | Resume selected session |
 | `Ctrl-O` | Export session as HTML |
+| `Ctrl-Y` | Copy session as LLM-optimized Markdown |
 | `Ctrl-R` | Refresh session list |
 | `↑/↓` | Navigate sessions |
 | Type | Filter sessions |
@@ -70,6 +72,9 @@ claude-sessions-stats <session-id> --full
 
 # Export a session to HTML
 claude-sessions-export <session-id>
+
+# Copy session as Markdown to clipboard
+claude-sessions-copy-md <session-id>
 
 # Preview a session (used internally by fzf)
 claude-sessions-preview <session-id>

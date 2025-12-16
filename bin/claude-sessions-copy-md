@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+sid="$1"
+
+# Find session file
+f=$(find "$CLAUDE_DIR/projects" -name "${sid}.jsonl" 2>/dev/null | head -1)
+[ -z "$f" ] && { echo "Session not found"; exit 1; }
+
+# Extract metadata
+proj=$(basename "$(dirname "$f")" | sed 's/-Users-[^-]*-code-//')
+branch=$(grep -o '"gitBranch":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"gitBranch":"//;s/"$//')
+
+# Date format: macOS vs Linux
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  fdate=$(stat -f '%Sm' -t '%Y-%m-%d' "$f" 2>/dev/null)
+else
+  fdate=$(stat -c '%y' "$f" 2>/dev/null | cut -d' ' -f1)
+fi
+
+# Generate LLM-optimized markdown with Python
+md=$(python3 << PYEOF
+import json
+
+print(f"# Session: $proj ($branch) - $fdate")
+print()
+
+with open("$f") as fp:
+    for line in fp:
+        try:
+            data = json.loads(line)
+
+            # Summary
+            if data.get("type") == "summary":
+                summary = data.get("summary", "")
+                if summary:
+                    print("## Summary")
+                    print(summary)
+                    print()
+                continue
+
+            msg = data.get("message", {})
+            role = msg.get("role")
+            content = msg.get("content")
+
+            # User message
+            if role == "user" and isinstance(content, str):
+                if content.startswith("Caveat:") or content.startswith("<"):
+                    continue
+                print("## User")
+                print(content)
+                print()
+
+            # Assistant message
+            elif role == "assistant" and isinstance(content, list):
+                texts = []
+                tools = []
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            if text:
+                                texts.append(text)
+                        elif item.get("type") == "tool_use":
+                            name = item.get("name", "tool")
+                            inp = item.get("input", {})
+                            # Extract primary argument
+                            arg = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
+                            if arg:
+                                tools.append(f"[Tool: {name} {arg}]")
+                            else:
+                                tools.append(f"[Tool: {name}]")
+
+                if texts or tools:
+                    print("## Assistant")
+                    if texts:
+                        print("\n".join(texts))
+                    if tools:
+                        print()
+                        print(" ".join(tools))
+                    print()
+        except:
+            continue
+PYEOF
+)
+
+# Copy to clipboard
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "$md" | pbcopy
+else
+    echo "$md" | xclip -selection clipboard 2>/dev/null || echo "$md" | xsel --clipboard 2>/dev/null
+fi
+
+# Output line count
+lines=$(echo "$md" | wc -l | tr -d ' ')
+echo "Copied to clipboard ($lines lines)"
