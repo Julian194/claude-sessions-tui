@@ -1,0 +1,41 @@
+#!/usr/bin/env fish
+
+# Test a PR locally by checking it out and unlinking homebrew
+
+set pr_number $argv[1]
+
+if test -z "$pr_number"
+    echo "Usage: test-pr <pr-number>"
+    echo ""
+    echo "Examples:"
+    echo "  test-pr 1      # Test PR #1"
+    echo "  test-pr reset  # Go back to main and relink homebrew"
+    exit 1
+end
+
+set repo_dir (dirname (dirname (status filename)))
+cd $repo_dir
+
+if test "$pr_number" = "reset"
+    echo "→ Switching back to main..."
+    git checkout main
+    echo "→ Relinking homebrew..."
+    brew link claude-sessions 2>/dev/null; or echo "  (homebrew not installed, skipping)"
+    echo "✓ Reset complete"
+    exit 0
+end
+
+echo "→ Checking out PR #$pr_number..."
+gh pr checkout $pr_number; or exit 1
+
+echo "→ Unlinking homebrew version..."
+brew unlink claude-sessions 2>/dev/null; or echo "  (already unlinked or not installed)"
+
+echo "→ Making scripts executable..."
+chmod +x bin/*
+
+echo ""
+echo "✓ PR #$pr_number is ready to test!"
+echo ""
+echo "Make sure your PATH includes: $repo_dir/bin"
+echo "Run 'test-pr reset' when done to go back to main + homebrew"
