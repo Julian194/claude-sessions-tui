@@ -11,15 +11,19 @@ CACHE="$CLAUDE_DIR/sessions-cache.tsv"
 # This ensures we always have fresh data without noticeable delay
 "$SCRIPT_DIR/claude-sessions-rebuild" > /dev/null 2>&1
 
+HEADER='enter=resume | ctrl-o=export | ctrl-y=copy-md | ctrl-r=refresh'
+FZF_PORT=$((10000 + RANDOM % 50000))
+
 result=$(fzf < "$CACHE" \
   --delimiter=$'\t' \
   --with-nth=2,3,4 \
   --preview="$SCRIPT_DIR/claude-sessions-preview {1}" \
   --preview-window=right:50%:wrap \
-  --header="enter=resume | ctrl-o=export | ctrl-y=copy-md | ctrl-r=refresh" \
-  --bind="ctrl-r:reload($SCRIPT_DIR/claude-sessions-rebuild)" \
-  --bind="ctrl-y:execute-silent($SCRIPT_DIR/claude-sessions-copy-md {1})+transform-header:echo 'Copied to clipboard!'" \
-  --bind="ctrl-o:execute-silent($SCRIPT_DIR/claude-sessions-export {1})+transform-header:echo 'Exported! Opening browser...'" \
+  --header="$HEADER" \
+  --listen="localhost:$FZF_PORT" \
+  --bind="ctrl-r:reload($SCRIPT_DIR/claude-sessions-rebuild)+change-header($HEADER)" \
+  --bind="ctrl-y:execute-silent($SCRIPT_DIR/claude-sessions-copy-md {1} && $SCRIPT_DIR/claude-sessions-reset-header $FZF_PORT '$HEADER' &)+change-header(Copied to clipboard!)" \
+  --bind="ctrl-o:execute-silent($SCRIPT_DIR/claude-sessions-export {1} && $SCRIPT_DIR/claude-sessions-reset-header $FZF_PORT '$HEADER' &)+change-header(Exported!)" \
   --expect=enter)
 
 key=$(echo "$result" | head -1)
