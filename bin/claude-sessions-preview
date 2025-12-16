@@ -32,6 +32,21 @@ if [ -n "$summaries" ]; then
   echo ""
 fi
 
+# Slash Commands (from both command-name tags and SlashCommand tool calls)
+slash_commands=$(
+  {
+    grep -o '<command-name>/[^<]*</command-name>' "$f" 2>/dev/null | sed 's|<command-name>||g;s|</command-name>||g'
+    grep -o '"name":"SlashCommand"[^}]*"command":"[^"]*"' "$f" 2>/dev/null | sed 's/.*"command":"//g;s/".*//g'
+  } | sort -u
+)
+if [ -n "$slash_commands" ]; then
+  echo "━━━ Slash Commands ━━━"
+  echo "$slash_commands" | while read -r cmd; do
+    echo "  $cmd"
+  done
+  echo ""
+fi
+
 # Files touched (from Write/Edit tool calls) - show path relative to project
 cwd=$(grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/"cwd":"//g;s/"$//g')
 files=$(grep -o '"file_path":"[^"]*"' "$f" 2>/dev/null | \
