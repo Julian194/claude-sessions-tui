@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.3] - 2025-12-17
+
+### Added
+
+- add test-pr script for quick PR testing
+- display slash command content in session exports
+- add LLM-optimized markdown copy to clipboard (ctrl-y) (#1)
+
+### Fixed
+
+- auto-reset header after 1 second on copy/export actions
+- auto-categorize changelog by commit prefix (feat→Added, fix→Fixed)
+
 ## [0.2.2] - 2025-12-12
 
 ### Fixed
