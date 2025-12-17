@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Reset fzf header after delay
+# Usage: claude-sessions-reset-header PORT HEADER_TEXT
+sleep 1
+curl -s "localhost:$1" -d "change-header($2)" >/dev/null 2>&1

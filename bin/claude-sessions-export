@@ -399,6 +399,32 @@ cat > "$output" << HEADER
       color: var(--text-muted);
     }
 
+    /* Slash Command */
+    .slashcommand {
+      position: relative;
+      margin: 2.5rem 0;
+      padding: 1.75rem 2rem;
+      background: var(--bg-surface);
+      border: 1px solid rgba(167,139,250,0.2);
+      border-radius: 2px;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    .slashcommand::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 3px;
+      height: 100%;
+      background: var(--accent-violet);
+      border-radius: 2px 0 0 2px;
+    }
+
+    .slashcommand .role {
+      color: var(--accent-violet);
+    }
+
     /* Summary */
     .summary {
       position: relative;
@@ -683,51 +709,108 @@ JSBLOCK
 # Process messages with Python - output as JSON
 python3 << PYEOF >> "$output"
 import json
+import re
 
 with open("$f") as fp:
-    for line in fp:
-        try:
-            data = json.loads(line)
+    lines = list(fp)
 
-            if data.get("type") == "summary":
-                summary = data.get("summary", "")
-                print(f'    messages.push({{type: "summary", text: {json.dumps(summary)}}});')
+# Track slash command state
+slash_command_name = None
+slash_command_ts = None
+
+for i, line in enumerate(lines):
+    try:
+        data = json.loads(line)
+
+        if data.get("type") == "summary":
+            summary = data.get("summary", "")
+            print(f'    messages.push({{type: "summary", text: {json.dumps(summary)}}});')
+            continue
+
+        msg = data.get("message", {})
+        role = msg.get("role")
+        content = msg.get("content")
+
+        timestamp = data.get("timestamp", "")
+
+        # Detect SlashCommand tool use
+        if role == "assistant" and isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "tool_use":
+                    if item.get("name") == "SlashCommand":
+                        tool_input = item.get("input", {})
+                        command = tool_input.get("command", "")
+                        if command:
+                            slash_command_name = command
+                            slash_command_ts = timestamp
+
+        # Check for expanded slash command content (isMeta=true user message)
+        if role == "user" and isinstance(content, list):
+            is_meta = data.get("isMeta", False)
+            if is_meta and slash_command_name:
+                # Extract text from content list
+                texts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_content = item.get("text", "").strip()
+                        # Skip the "command-message" XML tag
+                        if not text_content.startswith("<command-message>"):
+                            texts.append(text_content)
+
+                expanded_content = chr(10).join(texts)
+                if expanded_content:
+                    print(f'    messages.push({{type: "slashcommand", command: {json.dumps(slash_command_name)}, text: {json.dumps(expanded_content)}, ts: {json.dumps(slash_command_ts)}}});')
+
+                slash_command_name = None
+                slash_command_ts = None
                 continue
 
-            msg = data.get("message", {})
-            role = msg.get("role")
-            content = msg.get("content")
+        if role == "user" and isinstance(content, str):
+            # Skip Caveat messages
+            if content.startswith("Caveat:"):
+                continue
 
-            timestamp = data.get("timestamp", "")
+            # Check for slash command with args (e.g. <command-name>/foo</command-name>...<command-args>...</command-args>)
+            cmd_match = re.search(r'<command-name>(/[^<]+)</command-name>', content)
+            args_match = re.search(r'<command-args>(.*?)</command-args>', content, re.DOTALL)
+            if cmd_match:
+                cmd_name = cmd_match.group(1)
+                cmd_args = args_match.group(1).strip() if args_match else ""
+                if cmd_args:
+                    print(f'    messages.push({{type: "slashcommand", command: {json.dumps(cmd_name)}, text: {json.dumps(cmd_args)}, ts: {json.dumps(timestamp)}}});')
+                continue
 
-            if role == "user" and isinstance(content, str):
-                # Skip system messages and XML tags
-                if content.startswith("Caveat:") or content.startswith("<"):
-                    continue
-                print(f'    messages.push({{type: "user", text: {json.dumps(content)}, ts: {json.dumps(timestamp)}}});')
+            # Skip other XML-tagged system messages
+            if content.startswith("<"):
+                continue
 
-            elif role == "assistant" and isinstance(content, list):
-                texts = []
-                tools = []
-                for item in content:
-                    if isinstance(item, dict):
-                        if item.get("type") == "text":
-                            text = item.get("text", "").strip()
-                            if text:
-                                texts.append(text)
-                        elif item.get("type") == "tool_use":
-                            tool_name = item.get("name", "tool")
-                            tool_input = item.get("input", {})
-                            file_path = tool_input.get("file_path", "")
-                            if file_path:
-                                file_short = file_path.split("/")[-1]
-                                tools.append(f"{tool_name}: {file_short}")
+            print(f'    messages.push({{type: "user", text: {json.dumps(content)}, ts: {json.dumps(timestamp)}}});')
 
-                if texts or tools:
-                    print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}, ts: {json.dumps(timestamp)}}});')
+        elif role == "assistant" and isinstance(content, list):
+            texts = []
+            tools = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text = item.get("text", "").strip()
+                        if text:
+                            texts.append(text)
+                    elif item.get("type") == "tool_use":
+                        tool_name = item.get("name", "tool")
+                        # Skip SlashCommand tool display (handled separately)
+                        if tool_name == "SlashCommand":
+                            continue
+                        tool_input = item.get("input", {})
+                        file_path = tool_input.get("file_path", "")
+                        if file_path:
+                            file_short = file_path.split("/")[-1]
+                            tools.append(f"{tool_name}: {file_short}")
 
-        except json.JSONDecodeError:
-            continue
+            if texts or tools:
+                print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}, ts: {json.dumps(timestamp)}}});')
+
+    except json.JSONDecodeError:
+        continue
 PYEOF
 
 # Write footer with rendering logic
@@ -749,6 +832,12 @@ cat >> "$output" << 'FOOTER'
 
       if (msg.type === 'summary') {
         container.innerHTML += `<div class="summary" style="animation-delay: ${delay}ms">${msg.text}</div>`;
+      } else if (msg.type === 'slashcommand') {
+        container.innerHTML += `
+          <div class="message slashcommand" style="animation-delay: ${delay}ms">
+            <div class="role">Slash Command: ${msg.command} ${timeHtml}</div>
+            <div class="content">${marked.parse(msg.text)}</div>
+          </div>`;
       } else if (msg.type === 'user') {
         container.innerHTML += `
           <div class="message user" style="animation-delay: ${delay}ms">

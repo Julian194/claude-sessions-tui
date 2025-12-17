@@ -22,9 +22,13 @@ fi
 # Generate LLM-optimized markdown with Python
 md=$(python3 << PYEOF
 import json
+import re
 
 print(f"# Session: $proj ($branch) - $fdate")
 print()
+
+# Track last slash command for associating isMeta content
+last_slash_command = None
 
 with open("$f") as fp:
     for line in fp:
@@ -43,14 +47,50 @@ with open("$f") as fp:
             msg = data.get("message", {})
             role = msg.get("role")
             content = msg.get("content")
+            is_meta = data.get("isMeta", False)
 
             # User message
-            if role == "user" and isinstance(content, str):
-                if content.startswith("Caveat:") or content.startswith("<"):
-                    continue
-                print("## User")
-                print(content)
-                print()
+            if role == "user":
+                # Handle string content
+                if isinstance(content, str):
+                    # Skip Caveat messages
+                    if content.startswith("Caveat:"):
+                        continue
+
+                    # Check for slash command invocation with optional args
+                    cmd_match = re.search(r'<command-name>(/[^<]+)</command-name>', content)
+                    args_match = re.search(r'<command-args>(.*?)</command-args>', content, re.DOTALL)
+                    if cmd_match:
+                        cmd_name = cmd_match.group(1)
+                        cmd_args = args_match.group(1).strip() if args_match else ""
+                        if cmd_args:
+                            # Command has args - show it directly
+                            print(f"## SlashCommand: {cmd_name}")
+                            print(cmd_args)
+                            print()
+                        else:
+                            # Command without args - track for isMeta expansion
+                            last_slash_command = cmd_name
+                        continue
+
+                    # Skip other XML-tagged system messages
+                    if content.startswith("<"):
+                        continue
+
+                    print("## User")
+                    print(content)
+                    print()
+
+                # Handle list content (may contain isMeta expanded prompts)
+                elif isinstance(content, list) and is_meta:
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            if text and last_slash_command:
+                                print(f"## SlashCommand: {last_slash_command}")
+                                print(text)
+                                print()
+                                last_slash_command = None
 
             # Assistant message
             elif role == "assistant" and isinstance(content, list):
@@ -65,12 +105,19 @@ with open("$f") as fp:
                         elif item.get("type") == "tool_use":
                             name = item.get("name", "tool")
                             inp = item.get("input", {})
-                            # Extract primary argument
-                            arg = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
-                            if arg:
-                                tools.append(f"[Tool: {name} {arg}]")
+                            # Track SlashCommand tool calls
+                            if name == "SlashCommand":
+                                cmd = inp.get("command", "")
+                                if cmd:
+                                    last_slash_command = cmd
+                                    tools.append(f"[SlashCommand: {cmd}]")
                             else:
-                                tools.append(f"[Tool: {name}]")
+                                # Extract primary argument
+                                arg = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
+                                if arg:
+                                    tools.append(f"[Tool: {name} {arg}]")
+                                else:
+                                    tools.append(f"[Tool: {name}]")
 
                 if texts or tools:
                     print("## Assistant")
