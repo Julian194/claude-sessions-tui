@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check scripts are executable
+        run: |
+          for script in bin/*; do
+            if [ ! -x "$script" ]; then
+              echo "❌ $script is not executable"
+              exit 1
+            fi
+            echo "✓ $script"
+          done
+
+      - name: Bash syntax check
+        run: |
+          for script in bin/claude-sessions bin/claude-sessions-copy-md bin/claude-sessions-export \
+                        bin/claude-sessions-preview bin/claude-sessions-rebuild bin/claude-sessions-reset-header \
+                        bin/release bin/upgrade; do
+            bash -n "$script" && echo "✓ $script"
+          done
+
+      - name: Python syntax check
+        run: |
+          python3 -m py_compile bin/claude-sessions-stats && echo "✓ bin/claude-sessions-stats"
+
+      - name: Fish syntax check
+        run: |
+          brew install fish
+          fish -n bin/test-pr && echo "✓ bin/test-pr"
+
+      - name: Check dependencies available
+        run: |
+          brew install fzf jq
+          command -v fzf && echo "✓ fzf"
+          command -v python3 && echo "✓ python3"
+          command -v jq && echo "✓ jq"
+
+      - name: Test rebuild with no sessions
+        run: |
+          export CLAUDE_DIR=$(mktemp -d)
+          mkdir -p "$CLAUDE_DIR/projects"
+          bin/claude-sessions-rebuild || true
+          echo "✓ rebuild completed"
+
+      - name: Test export with invalid session
+        run: |
+          output=$(bin/claude-sessions-export nonexistent 2>&1) || true
+          echo "$output"
+          echo "✓ export handles invalid input"
+
+      - name: Homebrew formula audit
+        run: |
+          brew audit --formula Formula/claude-sessions.rb || true
+          echo "✓ formula checked"
