@@ -35,6 +35,11 @@ fixed=""
 removed=""
 
 while IFS= read -r commit; do
+  # Skip merge commits and release commits
+  case "$commit" in
+    Merge*|merge*|release:*) continue ;;
+  esac
+
   # Strip prefix and clean up
   msg=$(echo "$commit" | sed 's/^[a-z]*: //' | sed 's/^[a-z]*(//' | sed 's/):/: /')
 
@@ -42,6 +47,7 @@ while IFS= read -r commit; do
     feat:*|feat\(*) added="$added\n- $msg" ;;
     fix:*|fix\(*)   fixed="$fixed\n- $msg" ;;
     remove:*|removed:*) removed="$removed\n- $msg" ;;
+    refactor:*|docs:*|chore:*|test:*|ci:*) ;; # skip non-user-facing commits
     *)              changed="$changed\n- $msg" ;;
   esac
 done <<< "$commits"

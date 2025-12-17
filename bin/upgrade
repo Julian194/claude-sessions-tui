@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -e
+
+echo "Updating homebrew..."
+brew update --quiet 2>/dev/null || true
+
+current=$(brew list --versions claude-sessions 2>/dev/null | awk '{print $2}')
+if [ -z "$current" ]; then
+  echo "claude-sessions is not installed. Install with:"
+  echo "  brew install julian194/tap/claude-sessions"
+  exit 1
+fi
+
+latest=$(brew info julian194/tap/claude-sessions 2>/dev/null | head -1 | awk '{print $4}' | tr -d ',')
+
+if [ "$current" = "$latest" ]; then
+  echo "✓ claude-sessions is already at latest version ($current)"
+  exit 0
+fi
+
+echo "Upgrading claude-sessions $current → $latest..."
+brew upgrade claude-sessions
+
+echo ""
+echo "✓ Upgraded to claude-sessions v$latest"

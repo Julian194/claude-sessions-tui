@@ -19,8 +19,7 @@ A terminal UI for browsing, searching, and exporting [Claude Code](https://claud
 ### Homebrew (recommended)
 
 ```bash
-brew tap Julian194/claude-sessions-tui
-brew install claude-sessions
+brew install julian194/tap/claude-sessions
 ```
 
 ### Manual installation
