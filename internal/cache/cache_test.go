@@ -229,3 +229,52 @@ func TestEscapeTSV(t *testing.T) {
 		}
 	}
 }
+
+func TestParentSIDRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache.tsv")
+
+	c := New(cachePath)
+
+	// Entry with parent session ID (branch)
+	entries := []Entry{
+		{
+			SessionID: "parent-session",
+			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+			Project:   "project",
+			Summary:   "Parent session",
+			ParentSID: "",
+		},
+		{
+			SessionID: "child-session",
+			Date:      time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
+			Project:   "project",
+			Summary:   "Branched session",
+			ParentSID: "parent-session",
+		},
+	}
+
+	err := c.Write(entries)
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got, err := c.Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("Read() returned %d entries, want 2", len(got))
+	}
+
+	// Parent should have empty ParentSID
+	if got[0].ParentSID != "" {
+		t.Errorf("Parent ParentSID = %q, want empty", got[0].ParentSID)
+	}
+
+	// Child should have parent's ID
+	if got[1].ParentSID != "parent-session" {
+		t.Errorf("Child ParentSID = %q, want %q", got[1].ParentSID, "parent-session")
+	}
+}
