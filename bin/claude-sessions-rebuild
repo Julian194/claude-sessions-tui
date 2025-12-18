@@ -8,65 +8,159 @@ PROJECTS="$CLAUDE_DIR/projects"
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Stream mode: output sessions immediately without sorting/grouping (for progressive loading)
+STREAM_MODE=false
+if [ "$1" = "--stream" ]; then
+  STREAM_MODE=true
+fi
+
 # Ensure cache directory exists
 mkdir -p "$(dirname "$CACHE")"
 
 # Temporary files
 TEMP_NEW="$CLAUDE_DIR/.cache-new-$$"
 TEMP_MERGED="$CLAUDE_DIR/.cache-merged-$$"
-trap 'rm -f "$TEMP_NEW" "$TEMP_MERGED" "$TEMP_MERGED.ids"' EXIT
+TEMP_SORTED="$CLAUDE_DIR/.cache-sorted-$$"
+TEMP_FULL="$CLAUDE_DIR/.cache-full-$$"
+TEMP_ROOTS="$CLAUDE_DIR/.cache-roots-$$"
+TEMP_BRANCHES="$CLAUDE_DIR/.cache-branches-$$"
+TEMP_GROUPED="$CLAUDE_DIR/.cache-grouped-$$"
+trap 'rm -f "$TEMP_NEW" "$TEMP_MERGED" "$TEMP_MERGED.ids" "$TEMP_SORTED" "$TEMP_FULL" "$TEMP_ROOTS" "$TEMP_ROOTS.ids" "$TEMP_BRANCHES" "$TEMP_GROUPED"' EXIT
 
-# Inline extraction function (faster than calling external script for each file)
-extract_meta() {
-  local f="$1"
-  [ ! -f "$f" ] && return
-  local sid proj date mtime summary
-  sid=$(basename "$f" .jsonl)
-  proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    date=$(stat -f "%Sm" -t "%m-%d" "$f")
-    mtime=$(stat -f "%m" "$f")
-  else
-    date=$(date -r "$f" "+%m-%d")
-    mtime=$(stat -c "%Y" "$f")
-  fi
-  summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//' || true)
-  [ -z "$summary" ] && summary="-"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime"
-}
-export -f extract_meta
+# Python-based extraction (much faster than bash)
+EXTRACT_SCRIPT="$SCRIPT_DIR/claude-sessions-extract"
 
-# Check if incremental update is possible (cache exists, has content, and has mtime column)
+# Check if incremental update is possible (cache exists, has content, and has full_date column)
 incremental=false
 if [ -f "$CACHE" ] && [ -s "$CACHE" ]; then
-  # Check if cache has 5 columns (new format with mtime)
-  if [ "$(head -1 "$CACHE" | awk -F'\t' '{print NF}')" -eq 5 ]; then
+  # Check if cache has 7 columns (format with mtime, parent_sid, full_date)
+  cols=$(head -1 "$CACHE" | awk -F'\t' '{print NF}')
+  if [ "$cols" -ge 7 ]; then
     incremental=true
   fi
 fi
+
+# ANSI color codes for display
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# Insert date separators between days
+# Strategy: Collect all sessions for each date, then output header followed by sessions
+insert_date_separators() {
+  local input="$1"
+  local current_date=""
+  local temp_group="$CLAUDE_DIR/.cache-group-$$"
+
+  output_group() {
+    local group_date="$1"
+
+    [ ! -s "$temp_group" ] && return
+
+    # Format header
+    local formatted
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      formatted=$(LC_ALL=en_US.UTF-8 date -j -f "%Y-%m-%d" "$group_date" "+%A, %B %d, %Y" 2>/dev/null || echo "$group_date")
+    else
+      formatted=$(LC_ALL=en_US.UTF-8 date -d "$group_date" "+%A, %B %d, %Y" 2>/dev/null || echo "$group_date")
+    fi
+
+    # Output sessions first, then header (header appears BELOW sessions in display)
+    cat "$temp_group"
+    printf '%s\t%b%s ─────────────────────────%b\t-\t-\t0\t-\t-\n' \
+      "---HEADER---" "$CYAN" "$formatted" "$NC"
+  }
+
+  # Initialize empty temp file
+  : > "$temp_group"
+
+  while IFS=$'\t' read -r sid date proj summary mtime parent_sid full_date; do
+    # Skip if this is already a header line
+    [ "$sid" = "---HEADER---" ] && continue
+
+    # Get date from session (root sessions trigger new groups, orphan branches also need dates)
+    local line_date=""
+    if [ -n "$full_date" ] && [ "$full_date" != "-" ]; then
+      # Root sessions always set the date
+      # Orphan branches (when no current_date yet) also set the date
+      if [ "$parent_sid" = "-" ] || [ -z "$current_date" ]; then
+        line_date="$full_date"
+      fi
+    fi
+
+    # Check if we're starting a new date group
+    if [ -n "$line_date" ] && [ "$line_date" != "$current_date" ]; then
+      # Output previous group if exists
+      if [ -n "$current_date" ]; then
+        output_group "$current_date"
+      fi
+      # Start new group
+      current_date="$line_date"
+      : > "$temp_group"
+    fi
+
+    # Add line to current group
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid" "$full_date" >> "$temp_group"
+  done < "$input"
+
+  # Output final group
+  if [ -n "$current_date" ]; then
+    output_group "$current_date"
+  fi
+
+  rm -f "$temp_group"
+}
+
+# Group branches under their parents
+group_branches() {
+  local input="$1"
+
+  # Separate root sessions (no parent) and branches (have parent)
+  awk -F'\t' '$6 == "" || $6 == "-" { print }' "$input" > "$TEMP_ROOTS"
+  awk -F'\t' '$6 != "" && $6 != "-" { print }' "$input" > "$TEMP_BRANCHES"
+
+  # Get list of root session IDs
+  cut -f1 "$TEMP_ROOTS" > "$TEMP_ROOTS.ids"
+
+  # For each root session, output it followed by its branches
+  while IFS=$'\t' read -r sid date proj summary mtime parent_sid full_date; do
+    # Output the root session
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid" "$full_date"
+
+    # Find and output any branches of this session (with visual formatting)
+    while IFS=$'\t' read -r b_sid b_date b_proj b_summary b_mtime b_parent b_full_date; do
+      if [ "$b_parent" = "$sid" ]; then
+        # Format branch with indentation and color
+        printf '%s\t%b  └─ %s%b\t%s\t%s\t%s\t%s\t%s\n' "$b_sid" "$YELLOW" "$b_date" "$NC" "$b_proj" "$b_summary" "$b_mtime" "$b_parent" "$b_full_date"
+      fi
+    done < "$TEMP_BRANCHES"
+  done < "$TEMP_ROOTS"
+
+  # Output orphaned branches (parent doesn't exist) as regular sessions
+  while IFS=$'\t' read -r b_sid b_date b_proj b_summary b_mtime b_parent b_full_date; do
+    if ! grep -qx "$b_parent" "$TEMP_ROOTS.ids"; then
+      # Orphan: show as branch but without grouping
+      printf '%s\t%b  └─ %s%b\t%s\t%s\t%s\t%s\t%s\n' "$b_sid" "$YELLOW" "$b_date" "$NC" "$b_proj" "$b_summary" "$b_mtime" "$b_parent" "$b_full_date"
+    fi
+  done < "$TEMP_BRANCHES"
+
+  rm -f "$TEMP_ROOTS.ids"
+}
 
 if $incremental; then
   # Find only files newer than cache
   newer_files=$(find "$PROJECTS" -name "*.jsonl" -newer "$CACHE" ! -name "agent-*" 2>/dev/null || true)
 
   if [ -z "$newer_files" ]; then
-    # No changes - just output existing cache (already sorted)
-    cat "$CACHE"
+    # No changes - output grouped cache with date separators
+    group_branches "$CACHE" > "$TEMP_GROUPED"
+    insert_date_separators "$TEMP_GROUPED"
     exit 0
   fi
 
-  # Count new files for parallel decision
-  new_count=$(echo "$newer_files" | wc -l | tr -d ' ')
-
-  if [ "$new_count" -gt 10 ]; then
-    # Many files: use parallel processing
-    echo "$newer_files" | xargs -P 8 -I {} bash -c 'extract_meta "$@"' _ {} > "$TEMP_NEW" 2>/dev/null || true
-  else
-    # Few files: sequential is faster (less overhead)
-    echo "$newer_files" | while read -r f; do
-      extract_meta "$f"
-    done > "$TEMP_NEW"
-  fi
+  # Use Python extractor (handles parallelization internally)
+  echo "$newer_files" | "$EXTRACT_SCRIPT" > "$TEMP_NEW" 2>/dev/null || true
 
   # Get list of updated session IDs
   updated_ids=$(cut -f1 "$TEMP_NEW")
@@ -79,17 +173,33 @@ if $incremental; then
     cp "$CACHE" "$TEMP_MERGED"
   fi
 
-  # Merge and sort by mtime (column 5, descending = newest first)
-  cat "$TEMP_NEW" "$TEMP_MERGED" | sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
+  # Merge, sort by mtime (column 5, descending = newest first), and group branches
+  cat "$TEMP_NEW" "$TEMP_MERGED" | sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' > "$TEMP_SORTED"
+  cp "$TEMP_SORTED" "$CACHE"
+  group_branches "$TEMP_SORTED" > "$TEMP_GROUPED"
+  insert_date_separators "$TEMP_GROUPED"
 
 else
-  # Full rebuild - sequential (faster due to less overhead)
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-'
+  # Full rebuild
+  if $STREAM_MODE; then
+    # Stream mode: use Python extractor with --stream flag for progressive loading
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-'
+    else
+      find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
+        sort -rn | cut -d' ' -f2- | grep -v 'agent-'
+    fi | "$EXTRACT_SCRIPT" --stream
   else
-    find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
-      sort -rn | cut -d' ' -f2- | grep -v 'agent-'
-  fi | while read -r f; do
-    extract_meta "$f"
-  done | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
+    # Normal mode: full processing with sorting/grouping (parallel for speed)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-'
+    else
+      find "$PROJECTS" -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | \
+        sort -rn | cut -d' ' -f2- | grep -v 'agent-'
+    fi | "$EXTRACT_SCRIPT" 2>/dev/null | \
+      sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' > "$TEMP_FULL"
+    cp "$TEMP_FULL" "$CACHE"
+    group_branches "$TEMP_FULL" > "$TEMP_GROUPED"
+    insert_date_separators "$TEMP_GROUPED"
+  fi
 fi
