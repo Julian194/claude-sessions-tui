@@ -79,27 +79,35 @@ func Run(cfg Config) (*Result, error) {
 	cmd := exec.Command("fzf", args...)
 	cmd.Stderr = os.Stderr
 
-	// Feed cache file to stdin
-	cacheData, err := os.ReadFile(cacheFile)
-	if err != nil {
-		cacheData = []byte{}
-	}
-	cmd.Stdin = strings.NewReader(string(cacheData))
+	// Read and format existing cache for immediate display
+	entries, _ := cache.Read(cacheFile)
+	formatted := formatForDisplay(entries)
+	cmd.Stdin = strings.NewReader(strings.Join(formatted, "\n"))
 
-	// Background: rebuild cache and reload fzf
+	// Check if cache is fresh (less than 1 hour old)
+	cacheInfo, _ := os.Stat(cacheFile)
+	cacheFresh := cacheInfo != nil && time.Since(cacheInfo.ModTime()) < time.Hour
+
+	// Background: rebuild cache and reload fzf (only if stale)
 	go func() {
 		time.Sleep(100 * time.Millisecond) // Brief delay for fzf to start listening
 
-		// Rebuild cache
-		entries, err := cache.BuildFrom(cfg.Adapter)
-		if err == nil {
-			cache.Write(cacheFile, entries)
-		}
+		if !cacheFresh || len(entries) == 0 {
+			// Rebuild cache
+			newEntries, err := cache.BuildFrom(cfg.Adapter)
+			if err == nil {
+				cache.Write(cacheFile, newEntries)
+			}
 
-		// Reload fzf with new data and update header
-		reloadURL := fmt.Sprintf("http://localhost:%d", port)
-		body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, header)
-		http.Post(reloadURL, "text/plain", strings.NewReader(body))
+			// Reload fzf with new data
+			reloadURL := fmt.Sprintf("http://localhost:%d", port)
+			body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, header)
+			http.Post(reloadURL, "text/plain", strings.NewReader(body))
+		} else {
+			// Just update header (cache is fresh)
+			reloadURL := fmt.Sprintf("http://localhost:%d", port)
+			http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", header)))
+		}
 	}()
 
 	// Run fzf
