@@ -24,7 +24,7 @@ jobs:
 
       - name: Bash syntax check
         run: |
-          for script in bin/claude-sessions bin/claude-sessions-copy-md bin/claude-sessions-export \
+          for script in bin/claude-sessions bin/claude-sessions-branch bin/claude-sessions-copy-md bin/claude-sessions-export \
                         bin/claude-sessions-preview bin/claude-sessions-rebuild bin/claude-sessions-reset-header \
                         bin/release bin/upgrade; do
             bash -n "$script" && echo "✓ $script"
@@ -58,6 +58,35 @@ jobs:
           output=$(bin/claude-sessions-export nonexistent 2>&1) || true
           echo "$output"
           echo "✓ export handles invalid input"
+
+      - name: Test branch with invalid session
+        run: |
+          output=$(bin/claude-sessions-branch nonexistent 2>&1) || true
+          echo "$output" | grep -q "Session not found" && echo "✓ branch handles invalid input"
+
+      - name: Test branch creates copy
+        run: |
+          export CLAUDE_DIR=$(mktemp -d)
+          mkdir -p "$CLAUDE_DIR/projects/test-project"
+          # Create a mock session file
+          echo '{"type":"summary","summary":"Test session"}' > "$CLAUDE_DIR/projects/test-project/test-session-id.jsonl"
+          echo '{"type":"user","message":"Hello"}' >> "$CLAUDE_DIR/projects/test-project/test-session-id.jsonl"
+          # Branch it
+          new_sid=$(bin/claude-sessions-branch test-session-id)
+          # Verify new session exists
+          if [ -f "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" ]; then
+            echo "✓ branch created new session file"
+          else
+            echo "❌ branch failed to create new session"
+            exit 1
+          fi
+          # Verify branch metadata was added
+          if head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" | grep -q '"parentSession":"test-session-id"'; then
+            echo "✓ branch metadata contains parent reference"
+          else
+            echo "❌ branch metadata missing parent reference"
+            exit 1
+          fi
 
       - name: Homebrew formula audit
         run: |
