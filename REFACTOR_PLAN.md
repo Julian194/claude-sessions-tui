@@ -273,9 +273,8 @@ func TestExportHTML(t *testing.T) {
 
 - [ ] **3.1** Update README for multi-agent support
 - [ ] **3.2** Add `--help` with provider-specific info
-- [ ] **3.3** Consider renaming repo (e.g., `ai-sessions-tui`)
-- [ ] **3.4** Update Homebrew formula with all symlinks
-- [ ] **3.5** Tag release
+- [ ] **3.3** Update Homebrew formula with all symlinks
+- [ ] **3.4** Tag release
 
 ### Phase 4: OpenCode Adapter
 
