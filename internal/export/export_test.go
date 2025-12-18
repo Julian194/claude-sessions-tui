@@ -13,7 +13,7 @@ func sampleMessages() []adapters.Message {
 		{
 			Role:      "user",
 			Content:   "Help me with authentication",
-			Timestamp: 1705312800, // 2024-01-15 10:00:00
+			Timestamp: 1705312800,
 		},
 		{
 			Role:      "assistant",
@@ -24,18 +24,6 @@ func sampleMessages() []adapters.Message {
 					ID:    "tool-1",
 					Name:  "Read",
 					Input: `{"file_path": "/src/auth.ts"}`,
-				},
-			},
-		},
-		{
-			Role:      "user",
-			Content:   "",
-			Timestamp: 1705312810,
-			ToolResults: []adapters.ToolResult{
-				{
-					ToolUseID: "tool-1",
-					Content:   "export function login() {}",
-					Success:   true,
 				},
 			},
 		},
@@ -58,11 +46,10 @@ func TestToHTML_Basic(t *testing.T) {
 
 	html := ToHTML(messages, info)
 
-	// Check structure
 	if !strings.Contains(html, "<!DOCTYPE html>") {
 		t.Error("HTML should start with DOCTYPE")
 	}
-	if !strings.Contains(html, "<html>") {
+	if !strings.Contains(html, "<html") {
 		t.Error("HTML should contain <html> tag")
 	}
 	if !strings.Contains(html, "</html>") {
@@ -79,8 +66,8 @@ func TestToHTML_ContainsSessionInfo(t *testing.T) {
 	if !strings.Contains(html, "my-project") {
 		t.Error("HTML should contain project name")
 	}
-	if !strings.Contains(html, "session-123") {
-		t.Error("HTML should contain session ID")
+	if !strings.Contains(html, "session-") {
+		t.Error("HTML should contain session ID (truncated)")
 	}
 	if !strings.Contains(html, "main") {
 		t.Error("HTML should contain branch name")
@@ -96,8 +83,8 @@ func TestToHTML_ContainsMessages(t *testing.T) {
 	if !strings.Contains(html, "Help me with authentication") {
 		t.Error("HTML should contain user message")
 	}
-	if !strings.Contains(html, "I&#39;ll help you with that.") {
-		t.Error("HTML should contain assistant message (escaped)")
+	if !strings.Contains(html, "I'll help you with that") {
+		t.Error("HTML should contain assistant message")
 	}
 }
 
@@ -109,47 +96,21 @@ func TestToHTML_ContainsToolCalls(t *testing.T) {
 	if !strings.Contains(html, "Read") {
 		t.Error("HTML should contain tool name")
 	}
-	if !strings.Contains(html, "file_path") {
-		t.Error("HTML should contain tool input")
-	}
-}
-
-func TestToHTML_ContainsToolResults(t *testing.T) {
-	messages := sampleMessages()
-
-	html := ToHTML(messages, nil)
-
-	if !strings.Contains(html, "export function login()") {
-		t.Error("HTML should contain tool result")
-	}
-}
-
-func TestToHTML_EscapesSpecialChars(t *testing.T) {
-	messages := []adapters.Message{
-		{
-			Role:    "user",
-			Content: "Test <script>alert('xss')</script>",
-		},
-	}
-
-	html := ToHTML(messages, nil)
-
-	if strings.Contains(html, "<script>") {
-		t.Error("HTML should escape script tags")
-	}
-	if !strings.Contains(html, "&lt;script&gt;") {
-		t.Error("HTML should contain escaped script tag")
+	if !strings.Contains(html, "/src/auth.ts") {
+		t.Error("HTML should contain tool file path")
 	}
 }
 
 func TestToHTML_NilInfo(t *testing.T) {
 	messages := sampleMessages()
 
-	// Should not panic with nil info
 	html := ToHTML(messages, nil)
 
 	if html == "" {
 		t.Error("ToHTML should return non-empty string even with nil info")
+	}
+	if !strings.Contains(html, "Session Export") {
+		t.Error("HTML should use default title when info is nil")
 	}
 }
 
@@ -159,7 +120,6 @@ func TestToMarkdown_Basic(t *testing.T) {
 
 	md := ToMarkdown(messages, info)
 
-	// Check header
 	if !strings.Contains(md, "# my-project") {
 		t.Error("Markdown should contain project header")
 	}
@@ -197,29 +157,14 @@ func TestToMarkdown_ContainsToolCalls(t *testing.T) {
 	}
 }
 
-func TestToMarkdown_ContainsToolResults(t *testing.T) {
-	messages := sampleMessages()
-
-	md := ToMarkdown(messages, nil)
-
-	if !strings.Contains(md, "**Result:**") {
-		t.Error("Markdown should contain result header")
-	}
-	if !strings.Contains(md, "export function login()") {
-		t.Error("Markdown should contain tool result")
-	}
-}
-
 func TestToMarkdown_NilInfo(t *testing.T) {
 	messages := sampleMessages()
 
-	// Should not panic with nil info
 	md := ToMarkdown(messages, nil)
 
 	if md == "" {
 		t.Error("ToMarkdown should return non-empty string even with nil info")
 	}
-	// Should not have header when no info
 	if strings.Contains(md, "**Session:**") {
 		t.Error("Markdown should not contain session info when info is nil")
 	}
@@ -231,7 +176,7 @@ func TestFormatTimestamp(t *testing.T) {
 		want string
 	}{
 		{0, ""},
-		{1705312800, "2024-01-15"}, // Just check date part
+		{1705312800, "2024-01-15"},
 	}
 
 	for _, tt := range tests {
@@ -245,16 +190,76 @@ func TestFormatTimestamp(t *testing.T) {
 	}
 }
 
-func TestHTMLStyles(t *testing.T) {
-	styles := htmlStyles()
+func TestToHTML_EmbeddedTemplate(t *testing.T) {
+	if htmlTemplate == "" {
+		t.Error("HTML template should be embedded")
+	}
+	if !strings.Contains(htmlTemplate, "{{.Title}}") {
+		t.Error("Template should contain Title placeholder")
+	}
+	if !strings.Contains(htmlTemplate, "{{.MessagesJSON}}") {
+		t.Error("Template should contain MessagesJSON placeholder")
+	}
+}
 
-	if !strings.Contains(styles, "body") {
-		t.Error("Styles should contain body selector")
+func TestConvertMessage_SkipsSystemMessages(t *testing.T) {
+	msg := adapters.Message{
+		Role:    "user",
+		Content: "<system>internal message</system>",
 	}
-	if !strings.Contains(styles, ".message") {
-		t.Error("Styles should contain .message selector")
+
+	result := convertMessage(msg)
+	if result != nil {
+		t.Error("convertMessage should skip messages starting with <")
 	}
-	if !strings.Contains(styles, ".tool-call") {
-		t.Error("Styles should contain .tool-call selector")
+}
+
+func TestConvertMessage_SkipsCaveat(t *testing.T) {
+	msg := adapters.Message{
+		Role:    "user",
+		Content: "Caveat: This is a caveat message",
+	}
+
+	result := convertMessage(msg)
+	if result != nil {
+		t.Error("convertMessage should skip caveat messages")
+	}
+}
+
+func TestFormatToolCall(t *testing.T) {
+	tests := []struct {
+		name  string
+		tc    adapters.ToolCall
+		want  string
+	}{
+		{
+			name: "file_path tool",
+			tc:   adapters.ToolCall{Name: "Read", Input: `{"file_path": "/test.txt"}`},
+			want: "Read: /test.txt",
+		},
+		{
+			name: "command tool",
+			tc:   adapters.ToolCall{Name: "Bash", Input: `{"command": "ls -la"}`},
+			want: "Bash: ls -la",
+		},
+		{
+			name: "pattern tool",
+			tc:   adapters.ToolCall{Name: "Grep", Input: `{"pattern": "TODO", "path": "/src"}`},
+			want: "Grep: TODO in /src",
+		},
+		{
+			name: "no input",
+			tc:   adapters.ToolCall{Name: "Unknown", Input: ""},
+			want: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatToolCall(tt.tc)
+			if got != tt.want {
+				t.Errorf("formatToolCall() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

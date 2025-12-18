@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} // Claude Session</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-void: #08080c; --bg-surface: #0d0d12; --bg-elevated: #141419; --bg-hover: #1a1a21;
+      --border-subtle: rgba(255,255,255,0.06); --border-accent: rgba(255,255,255,0.12);
+      --text-primary: #e8e8ed; --text-secondary: #8b8b96; --text-muted: #5c5c66;
+      --accent-cyan: #4ecdc4; --accent-amber: #ffb347; --accent-rose: #ff6b8a; --accent-violet: #a78bfa;
+      --mono: 'JetBrains Mono', 'SF Mono', monospace; --serif: 'Newsreader', Georgia, serif; --sans: 'Instrument Sans', -apple-system, sans-serif;
+      --grid-opacity: 0.4; --glow-color: rgba(78,205,196,0.03);
+    }
+    [data-theme="light"] {
+      --bg-void: #f8f7f4; --bg-surface: #ffffff; --bg-elevated: #f0efe9; --bg-hover: #e8e6df;
+      --border-subtle: rgba(0,0,0,0.06); --border-accent: rgba(0,0,0,0.12);
+      --text-primary: #1a1a1f; --text-secondary: #5c5c66; --text-muted: #8b8b96;
+      --accent-cyan: #0d9488; --accent-amber: #d97706; --accent-rose: #e11d48; --accent-violet: #7c3aed;
+      --grid-opacity: 0.25; --glow-color: rgba(13,148,136,0.04);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg-void); color: var(--text-primary); line-height: 1.7; min-height: 100vh; position: relative; }
+    body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; opacity: var(--grid-opacity); z-index: -1; }
+    body::after { content: ''; position: fixed; top: -50%; left: -20%; width: 80%; height: 100%; background: radial-gradient(ellipse at center, var(--glow-color) 0%, transparent 60%); pointer-events: none; z-index: -1; }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 2rem; }
+    .header { padding: 4rem 0 3rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 3rem; position: relative; }
+    .header::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 120px; height: 1px; background: var(--accent-cyan); }
+    .eyebrow { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--accent-cyan); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem; }
+    .eyebrow::before { content: ''; width: 8px; height: 8px; background: var(--accent-cyan); border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+    .header h1 { font-family: var(--serif); font-size: 2.8rem; font-weight: 400; color: var(--text-primary); letter-spacing: -0.02em; margin-bottom: 1.5rem; line-height: 1.1; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-family: var(--mono); font-size: 0.75rem; color: var(--text-muted); }
+    .meta-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 4px; transition: all 0.2s ease; }
+    .meta-item:hover { border-color: var(--border-accent); background: var(--bg-hover); }
+    .meta-icon { font-size: 0.85rem; opacity: 0.7; }
+    #messages { padding-bottom: 6rem; }
+    .message { position: relative; margin: 2.5rem 0; padding: 1.75rem 2rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 2px; animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .message::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; border-radius: 2px 0 0 2px; }
+    .user::before { background: var(--accent-amber); }
+    .assistant::before { background: var(--accent-cyan); }
+    .user { margin-left: 4rem; border-color: rgba(255,179,71,0.15); }
+    .assistant { margin-right: 4rem; border-color: rgba(78,205,196,0.1); }
+    .role { font-family: var(--mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.6rem; }
+    .user .role { color: var(--accent-amber); }
+    .assistant .role { color: var(--accent-cyan); }
+    .timestamp { margin-left: auto; font-weight: 400; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+    .content { font-family: var(--serif); font-size: 1.05rem; line-height: 1.8; color: var(--text-primary); }
+    .content p { margin: 0.8rem 0; } .content p:first-child { margin-top: 0; } .content p:last-child { margin-bottom: 0; }
+    .content strong { font-weight: 500; color: var(--text-primary); }
+    .content em { font-style: italic; color: var(--text-secondary); }
+    .content ul, .content ol { margin: 1rem 0; padding-left: 1.5rem; }
+    .content li { margin: 0.4rem 0; }
+    .content a { color: var(--accent-cyan); text-decoration: none; border-bottom: 1px solid rgba(78,205,196,0.3); transition: border-color 0.2s; }
+    .content a:hover { border-color: var(--accent-cyan); }
+    .content code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.2rem 0.5rem; border-radius: 3px; border: 1px solid var(--border-subtle); color: var(--accent-rose); }
+    .content pre { margin: 1.25rem 0; padding: 1.25rem 1.5rem; background: var(--bg-void) !important; border: 1px solid var(--border-subtle); border-radius: 4px; overflow-x: auto; position: relative; }
+    .content pre::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent-violet), var(--accent-rose), var(--accent-amber)); border-radius: 4px 4px 0 0; }
+    .content pre code { background: none !important; border: none; padding: 0; color: var(--text-primary); font-size: 0.8rem; line-height: 1.6; }
+    .tool { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin: 0.75rem 0; padding: 0.6rem 1rem; background: var(--bg-void); border: 1px solid var(--border-subtle); border-left: 2px solid var(--accent-violet); border-radius: 3px; font-family: var(--mono); font-size: 0.75rem; color: var(--text-secondary); transition: all 0.2s ease; }
+    .tool:hover { background: var(--bg-elevated); border-color: var(--border-accent); }
+    .tool-name { color: var(--accent-violet); font-weight: 500; }
+    .tool-detail { color: var(--text-muted); word-break: break-word; white-space: pre-wrap; line-height: 1.5; }
+    .search-container { position: sticky; top: 0; z-index: 50; padding: 1rem 0; margin-bottom: 1rem; background: linear-gradient(to bottom, var(--bg-void) 0%, var(--bg-void) 70%, transparent 100%); }
+    .search-wrapper { position: relative; display: flex; align-items: center; }
+    .search-icon { position: absolute; left: 1rem; width: 18px; height: 18px; color: var(--text-muted); pointer-events: none; }
+    .search-input { width: 100%; padding: 0.85rem 1rem 0.85rem 2.75rem; font-family: var(--mono); font-size: 0.85rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--text-primary); outline: none; transition: all 0.2s ease; }
+    .search-input::placeholder { color: var(--text-muted); }
+    .search-input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 0 3px rgba(78,205,196,0.1); }
+    [data-theme="light"] .search-input:focus { box-shadow: 0 0 0 3px rgba(13,148,136,0.1); }
+    .search-meta { position: absolute; right: 1rem; font-family: var(--mono); font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; }
+    .search-count { padding: 0.2rem 0.5rem; background: var(--bg-elevated); border-radius: 3px; }
+    .search-clear { padding: 0.2rem 0.4rem; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; line-height: 1; transition: color 0.15s ease; }
+    .search-clear:hover { color: var(--text-primary); }
+    .highlight { background: rgba(255,179,71,0.3); border-radius: 2px; padding: 0 2px; }
+    [data-theme="light"] .highlight { background: rgba(217,119,6,0.25); }
+    .message.has-match { border-color: var(--accent-amber); cursor: pointer; }
+    .message.has-match:hover { background: var(--bg-hover); }
+    .theme-toggle { position: fixed; top: 1.5rem; right: 1.5rem; width: 44px; height: 44px; border: 1px solid var(--border-subtle); border-radius: 50%; background: var(--bg-elevated); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; z-index: 100; }
+    .theme-toggle:hover { border-color: var(--border-accent); background: var(--bg-hover); transform: scale(1.05); }
+    .theme-toggle svg { width: 20px; height: 20px; fill: var(--text-secondary); transition: all 0.3s ease; }
+    .theme-toggle:hover svg { fill: var(--text-primary); }
+    .theme-toggle .sun { display: none; } .theme-toggle .moon { display: block; }
+    [data-theme="light"] .theme-toggle .sun { display: block; } [data-theme="light"] .theme-toggle .moon { display: none; }
+    [data-theme="light"] .content pre { background: #f5f4f0 !important; }
+    [data-theme="light"] .tool { background: var(--bg-elevated); }
+    @media (max-width: 768px) { .container { padding: 0 1.25rem; } .header { padding: 2.5rem 0 2rem; } .header h1 { font-size: 2rem; } .user, .assistant { margin-left: 0; margin-right: 0; } .message { padding: 1.25rem 1.5rem; } .meta { gap: 0.4rem; } .meta-item { padding: 0.25rem 0.5rem; font-size: 0.7rem; } .theme-toggle { top: 1rem; right: 1rem; width: 38px; height: 38px; } }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-void); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+    <svg class="moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <div class="container">
+    <div class="header">
+      <div class="eyebrow">Session Transcript</div>
+      <h1>{{.Title}}</h1>
+      <div class="meta">
+        <span class="meta-item"><span class="meta-icon">◉</span> {{.Date}}</span>
+        {{if .Branch}}<span class="meta-item"><span class="meta-icon">⎇</span> {{.Branch}}</span>{{end}}
+        <span class="meta-item"><span class="meta-icon">#</span> {{.SessionID}}</span>
+        <span class="meta-item"><span class="meta-icon">◇</span> {{.MsgCount}} msgs</span>
+        <span class="meta-item"><span class="meta-icon">⚙</span> {{.ToolCount}} tools</span>
+      </div>
+    </div>
+    <div class="search-container">
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search messages..." autocomplete="off">
+        <div class="search-meta" id="searchMeta" style="display: none;">
+          <span class="search-count" id="searchCount"></span>
+          <button class="search-clear" onclick="clearSearch()">×</button>
+        </div>
+      </div>
+    </div>
+    <div id="messages"></div>
+  </div>
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const newTheme = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-theme', newTheme === 'dark' ? '' : 'light');
+      localStorage.setItem('claude-session-theme', newTheme);
+    }
+    (function() {
+      if (localStorage.getItem('claude-session-theme') === 'light')
+        document.documentElement.setAttribute('data-theme', 'light');
+    })();
+
+    const originalHTML = new Map();
+    const messages = {{.MessagesJSON}};
+
+    function formatTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    const container = document.getElementById('messages');
+    messages.forEach((msg, index) => {
+      const delay = Math.min(index * 50, 500);
+      const timeStr = formatTime(msg.ts);
+      const timeHtml = timeStr ? '<span class="timestamp">' + timeStr + '</span>' : '';
+
+      if (msg.type === 'user') {
+        container.innerHTML += '<div class="message user" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">You ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + '</div></div>';
+      } else if (msg.type === 'assistant') {
+        let toolsHtml = '';
+        if (msg.tools && msg.tools.length > 0) {
+          toolsHtml = msg.tools.map(t => {
+            const colonIdx = t.indexOf(':');
+            const name = colonIdx > 0 ? t.substring(0, colonIdx) : t;
+            const detail = colonIdx > 0 ? t.substring(colonIdx + 1).trim() : '';
+            return '<div class="tool"><span class="tool-name">' + name + '</span>' + (detail ? '<span class="tool-detail">' + detail.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '') + '</div>';
+          }).join('');
+        }
+        container.innerHTML += '<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>';
+      }
+    });
+
+    document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+    document.querySelectorAll('.message').forEach((msg, i) => { originalHTML.set(i, msg.innerHTML); });
+
+    function doSearch(query) {
+      const allMessages = document.querySelectorAll('.message');
+      const searchMeta = document.getElementById('searchMeta');
+      const searchCount = document.getElementById('searchCount');
+      allMessages.forEach((msg, i) => { msg.innerHTML = originalHTML.get(i); msg.style.display = ''; msg.classList.remove('has-match'); });
+      if (!query || query.length < 2) { searchMeta.style.display = 'none'; return; }
+      let matchCount = 0;
+      allMessages.forEach(msg => {
+        if (msg.textContent.toLowerCase().includes(query.toLowerCase())) {
+          matchCount++;
+          msg.classList.add('has-match');
+          const content = msg.querySelector('.content');
+          if (content) {
+            const regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+            content.innerHTML = content.innerHTML.replace(regex, '<mark class="highlight">$1</mark>');
+          }
+        } else { msg.style.display = 'none'; }
+      });
+      searchMeta.style.display = 'flex';
+      searchCount.textContent = matchCount + ' found';
+      const firstMatch = document.querySelector('.message.has-match');
+      if (firstMatch) firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function clearSearch(scrollToId) {
+      document.getElementById('searchInput').value = '';
+      document.querySelectorAll('.message').forEach((msg, i) => { msg.innerHTML = originalHTML.get(i); msg.style.display = ''; msg.classList.remove('has-match'); });
+      document.getElementById('searchMeta').style.display = 'none';
+      if (scrollToId) {
+        const target = document.getElementById(scrollToId);
+        if (target) setTimeout(() => { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.style.boxShadow = '0 0 0 2px var(--accent-amber)'; setTimeout(() => { target.style.boxShadow = ''; }, 1500); }, 50);
+      }
+    }
+
+    document.getElementById('messages').addEventListener('click', e => {
+      const msg = e.target.closest('.message');
+      if (msg && msg.classList.contains('has-match') && msg.id) clearSearch(msg.id);
+    });
+
+    let searchTimeout;
+    document.getElementById('searchInput').addEventListener('input', e => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => doSearch(e.target.value), 150); });
+    document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Escape') { clearSearch(); e.target.blur(); } });
+    document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); document.getElementById('searchInput').select(); } });
+  </script>
+</body>
+</html>
