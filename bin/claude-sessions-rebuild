@@ -123,18 +123,19 @@ group_branches() {
   # Get list of root session IDs
   cut -f1 "$TEMP_ROOTS" > "$TEMP_ROOTS.ids"
 
-  # For each root session, output it followed by its branches
+  # For each root session, output its branches first (so they appear below parent in fzf)
   while IFS=$'\t' read -r sid date proj summary mtime parent_sid full_date; do
-    # Output the root session
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid" "$full_date"
-
-    # Find and output any branches of this session (with visual formatting)
+    # Find and output any branches of this session first (with visual formatting)
+    # Output branches in reverse order by mtime so newest branch appears at bottom in fzf
     while IFS=$'\t' read -r b_sid b_date b_proj b_summary b_mtime b_parent b_full_date; do
       if [ "$b_parent" = "$sid" ]; then
         # Format branch with indentation and color
         printf '%s\t%b  └─ %s%b\t%s\t%s\t%s\t%s\t%s\n' "$b_sid" "$YELLOW" "$b_date" "$NC" "$b_proj" "$b_summary" "$b_mtime" "$b_parent" "$b_full_date"
       fi
     done < "$TEMP_BRANCHES"
+
+    # Output the root session after its branches
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid" "$full_date"
   done < "$TEMP_ROOTS"
 
   # Output orphaned branches (parent doesn't exist) as regular sessions
