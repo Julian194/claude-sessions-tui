@@ -25,8 +25,7 @@ jobs:
       - name: Bash syntax check
         run: |
           for script in bin/claude-sessions bin/claude-sessions-branch bin/claude-sessions-copy-md bin/claude-sessions-export \
-                        bin/claude-sessions-preview bin/claude-sessions-rebuild bin/claude-sessions-reset-header \
-                        bin/release bin/upgrade; do
+                        bin/claude-sessions-preview bin/claude-sessions-rebuild bin/claude-sessions-reset-header; do
             bash -n "$script" && echo "✓ $script"
           done
 
