@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Centralize temp file cleanup in EXIT trap to prevent leftover files on script abort
+- Date separators now appear above their sessions (not below)
+
+## [0.2.4] - 2025-12-18
+
+### Added
+
+- show full tool details in markdown export
+- click search result to scroll to message in full view
+- show full tool details in HTML export
+- add CI workflow with smoke tests
+
+### Fixed
+
+- correct homebrew install command in README, add upgrade script
 
 ## [0.2.3] - 2025-12-17
 
