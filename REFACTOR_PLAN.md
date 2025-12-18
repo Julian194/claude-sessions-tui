@@ -247,22 +247,22 @@ func TestExportHTML(t *testing.T) {
 
 ### Phase 1: Go Project Setup & Tests
 
-- [ ] **1.1** Initialize Go module (`go mod init`)
-- [ ] **1.2** Create directory structure (`cmd/`, `internal/`)
-- [ ] **1.3** Create test fixtures from real Claude sessions (anonymized)
-- [ ] **1.4** Write Claude adapter tests (parsing, metadata extraction)
-- [ ] **1.5** Write cache tests (TSV format)
-- [ ] **1.6** Write export tests (HTML, Markdown) with golden files
-- [ ] **1.7** Write stats tests (token counting, cost calculation)
-- [ ] **1.8** All tests pass against fixtures
+- [x] **1.1** Initialize Go module (`go mod init`)
+- [x] **1.2** Create directory structure (`cmd/`, `internal/`)
+- [x] **1.3** Create test fixtures from real Claude sessions (anonymized)
+- [x] **1.4** Write Claude adapter tests (parsing, metadata extraction)
+- [x] **1.5** Write cache tests (TSV format)
+- [x] **1.6** Write export tests (HTML, Markdown) with golden files
+- [x] **1.7** Write stats tests (token counting, cost calculation)
+- [x] **1.8** All tests pass against fixtures
 
 ### Phase 2: Migrate Claude to Go
 
-- [ ] **2.1** Implement Claude adapter (`internal/adapters/claude/`)
-- [ ] **2.2** Implement cache management (`internal/cache/`)
-- [ ] **2.3** Implement stats calculation (`internal/stats/`)
-- [ ] **2.4** Implement HTML export (`internal/export/html.go`)
-- [ ] **2.5** Implement Markdown export (`internal/export/markdown.go`)
+- [x] **2.1** Implement Claude adapter (`internal/adapters/claude/`)
+- [x] **2.2** Implement cache management (`internal/cache/`)
+- [x] **2.3** Implement stats calculation (`internal/stats/`)
+- [x] **2.4** Implement HTML export (`internal/export/html.go`)
+- [x] **2.5** Implement Markdown export (`internal/export/markdown.go`)
 - [ ] **2.6** Implement TUI/fzf integration (`internal/tui/`)
 - [ ] **2.7** Implement main entry point with subcommand routing
 - [ ] **2.8** All tests pass against Go implementation
