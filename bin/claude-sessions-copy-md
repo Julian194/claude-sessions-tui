@@ -112,10 +112,50 @@ with open("$f") as fp:
                                     last_slash_command = cmd
                                     tools.append(f"[SlashCommand: {cmd}]")
                             else:
-                                # Extract primary argument
-                                arg = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
-                                if arg:
-                                    tools.append(f"[Tool: {name} {arg}]")
+                                # Extract display info based on tool type
+                                display = ""
+                                if inp.get("file_path"):
+                                    display = inp["file_path"]
+                                elif inp.get("skill"):
+                                    display = inp["skill"]
+                                elif inp.get("command"):
+                                    display = inp["command"]
+                                elif inp.get("pattern"):
+                                    path = inp.get("path", "")
+                                    display = f"{inp['pattern']} in {path}" if path else inp["pattern"]
+                                elif inp.get("query"):
+                                    display = inp["query"]
+                                elif inp.get("url"):
+                                    display = inp["url"]
+                                elif inp.get("prompt") and inp.get("subagent_type"):
+                                    desc = inp.get("description", "")
+                                    display = f"[{inp['subagent_type']}] {desc or inp['prompt']}"
+                                elif inp.get("todos"):
+                                    todos = inp["todos"]
+                                    if isinstance(todos, list):
+                                        items = [t.get("content", "") for t in todos if isinstance(t, dict)]
+                                        display = "; ".join(items)
+                                elif inp.get("task_id"):
+                                    display = inp["task_id"]
+                                elif inp.get("shell_id"):
+                                    display = inp["shell_id"]
+                                elif inp.get("questions"):
+                                    qs = inp["questions"]
+                                    if isinstance(qs, list) and qs:
+                                        display = qs[0].get("question", "") if isinstance(qs[0], dict) else str(qs[0])
+                                elif name.startswith("mcp__"):
+                                    for k, v in inp.items():
+                                        if isinstance(v, str) and v:
+                                            display = f"{k}: {v}"
+                                            break
+                                else:
+                                    for k, v in inp.items():
+                                        if isinstance(v, str) and v and k != "description":
+                                            display = v
+                                            break
+
+                                if display:
+                                    tools.append(f"[Tool: {name} {display}]")
                                 else:
                                     tools.append(f"[Tool: {name}]")
 
