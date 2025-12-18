@@ -84,27 +84,38 @@ func Run(cfg Config) (*Result, error) {
 	formatted := formatForDisplay(entries)
 	cmd.Stdin = strings.NewReader(strings.Join(formatted, "\n"))
 
-	// Check if cache is fresh (less than 1 hour old)
-	cacheInfo, _ := os.Stat(cacheFile)
-	cacheFresh := cacheInfo != nil && time.Since(cacheInfo.ModTime()) < time.Hour
-
-	// Background: rebuild cache and reload fzf (only if stale)
+	// Background: incremental rebuild and reload fzf
 	go func() {
 		time.Sleep(100 * time.Millisecond) // Brief delay for fzf to start listening
 
-		if !cacheFresh || len(entries) == 0 {
-			// Rebuild cache
-			newEntries, err := cache.BuildFrom(cfg.Adapter)
-			if err == nil {
-				cache.Write(cacheFile, newEntries)
+		// Always do incremental rebuild (fast - only processes new/modified files)
+		newEntries, err := cache.BuildIncremental(cfg.Adapter, cacheFile, entries)
+		if err == nil && len(newEntries) > 0 {
+			// Check if anything changed
+			changed := len(newEntries) != len(entries)
+			if !changed {
+				// Quick check: compare first few entries
+				for i := 0; i < len(newEntries) && i < 5; i++ {
+					if newEntries[i].SessionID != entries[i].SessionID {
+						changed = true
+						break
+					}
+				}
 			}
 
-			// Reload fzf with new data
-			reloadURL := fmt.Sprintf("http://localhost:%d", port)
-			body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, header)
-			http.Post(reloadURL, "text/plain", strings.NewReader(body))
+			if changed {
+				cache.Write(cacheFile, newEntries)
+				// Reload fzf with new data
+				reloadURL := fmt.Sprintf("http://localhost:%d", port)
+				body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, header)
+				http.Post(reloadURL, "text/plain", strings.NewReader(body))
+			} else {
+				// Just update header
+				reloadURL := fmt.Sprintf("http://localhost:%d", port)
+				http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", header)))
+			}
 		} else {
-			// Just update header (cache is fresh)
+			// Just update header on error
 			reloadURL := fmt.Sprintf("http://localhost:%d", port)
 			http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", header)))
 		}

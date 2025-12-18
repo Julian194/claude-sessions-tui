@@ -173,6 +173,25 @@ func (c *Cache) BuildFrom(adapter adapters.Adapter) error {
 
 // BuildFrom builds cache entries from an adapter (standalone function)
 func BuildFrom(adapter adapters.Adapter) ([]Entry, error) {
+	return BuildIncremental(adapter, "", nil)
+}
+
+// BuildIncremental builds cache entries incrementally, only processing files newer than cache
+func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Entry) ([]Entry, error) {
+	// Get cache mtime for incremental check
+	var cacheMtime time.Time
+	if cachePath != "" {
+		if info, err := os.Stat(cachePath); err == nil {
+			cacheMtime = info.ModTime()
+		}
+	}
+
+	// Build lookup of existing entries
+	existingMap := make(map[string]Entry)
+	for _, e := range existing {
+		existingMap[e.SessionID] = e
+	}
+
 	sessions, err := adapter.ListSessions()
 	if err != nil {
 		return nil, err
@@ -180,9 +199,29 @@ func BuildFrom(adapter adapters.Adapter) ([]Entry, error) {
 
 	var entries []Entry
 	for _, id := range sessions {
+		// Check if file is newer than cache
+		sessionPath := adapter.GetSessionFile(id)
+		if sessionPath == "" {
+			continue
+		}
+
+		info, err := os.Stat(sessionPath)
+		if err != nil {
+			continue
+		}
+
+		// If cache exists and file is older, use existing entry
+		if !cacheMtime.IsZero() && info.ModTime().Before(cacheMtime) {
+			if existing, ok := existingMap[id]; ok {
+				entries = append(entries, existing)
+				continue
+			}
+		}
+
+		// Extract fresh metadata
 		meta, err := adapter.ExtractMeta(id)
 		if err != nil {
-			continue // Skip sessions that fail to parse
+			continue
 		}
 		entries = append(entries, Entry{
 			SessionID: meta.ID,
