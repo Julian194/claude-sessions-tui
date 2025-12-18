@@ -371,8 +371,9 @@ cat > "$output" << HEADER
     /* Tools */
     .tool {
       display: flex;
-      align-items: center;
-      gap: 0.75rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
       margin: 0.75rem 0;
       padding: 0.6rem 1rem;
       background: var(--bg-void);
@@ -395,8 +396,11 @@ cat > "$output" << HEADER
       font-weight: 500;
     }
 
-    .tool-file {
+    .tool-detail {
       color: var(--text-muted);
+      word-break: break-word;
+      white-space: pre-wrap;
+      line-height: 1.5;
     }
 
     /* Slash Command */
@@ -572,6 +576,11 @@ cat > "$output" << HEADER
 
     .message.has-match {
       border-color: var(--accent-amber);
+      cursor: pointer;
+    }
+
+    .message.has-match:hover {
+      background: var(--bg-hover);
     }
 
     .message.hidden-by-search {
@@ -801,10 +810,87 @@ for i, line in enumerate(lines):
                         if tool_name == "SlashCommand":
                             continue
                         tool_input = item.get("input", {})
-                        file_path = tool_input.get("file_path", "")
-                        if file_path:
-                            file_short = file_path.split("/")[-1]
-                            tools.append(f"{tool_name}: {file_short}")
+
+                        # Extract display info based on tool type
+                        display_info = ""
+
+                        # File-based tools
+                        if tool_input.get("file_path"):
+                            display_info = tool_input["file_path"]
+                        # Skill tool
+                        elif tool_input.get("skill"):
+                            display_info = tool_input["skill"]
+                        # Bash/shell commands
+                        elif tool_input.get("command"):
+                            display_info = tool_input["command"]
+                        # Grep/Glob patterns
+                        elif tool_input.get("pattern"):
+                            path = tool_input.get("path", "")
+                            if path:
+                                display_info = f"{tool_input['pattern']} in {path}"
+                            else:
+                                display_info = tool_input["pattern"]
+                        # WebSearch
+                        elif tool_input.get("query"):
+                            display_info = tool_input["query"]
+                        # WebFetch
+                        elif tool_input.get("url"):
+                            prompt = tool_input.get("prompt", "")
+                            if prompt:
+                                display_info = f"{tool_input['url']}\\n{prompt}"
+                            else:
+                                display_info = tool_input["url"]
+                        # Task agent
+                        elif tool_input.get("prompt") and tool_input.get("subagent_type"):
+                            desc = tool_input.get('description', '')
+                            prompt = tool_input.get('prompt', '')
+                            display_info = f"[{tool_input.get('subagent_type', '')}] {desc or prompt}"
+                        # TodoWrite - show all todos
+                        elif tool_input.get("todos"):
+                            todos = tool_input["todos"]
+                            if isinstance(todos, list):
+                                todo_lines = []
+                                for t in todos:
+                                    if isinstance(t, dict):
+                                        status = t.get("status", "")
+                                        content = t.get("content", "")
+                                        icon = "✓" if status == "completed" else "→" if status == "in_progress" else "○"
+                                        todo_lines.append(f"{icon} {content}")
+                                display_info = "\\n".join(todo_lines)
+                        # TaskOutput/KillShell
+                        elif tool_input.get("task_id"):
+                            display_info = tool_input["task_id"]
+                        elif tool_input.get("shell_id"):
+                            display_info = tool_input["shell_id"]
+                        # AskUserQuestion - show all questions
+                        elif tool_input.get("questions"):
+                            qs = tool_input["questions"]
+                            if isinstance(qs, list):
+                                q_lines = []
+                                for q in qs:
+                                    if isinstance(q, dict):
+                                        q_lines.append(q.get("question", ""))
+                                    else:
+                                        q_lines.append(str(q))
+                                display_info = "\\n".join(q_lines)
+                        # MCP tools - show first meaningful input
+                        elif tool_name.startswith("mcp__"):
+                            # Show first non-empty string value
+                            for k, v in tool_input.items():
+                                if isinstance(v, str) and v:
+                                    display_info = f"{k}: {v}"
+                                    break
+                        # Fallback: show first input value
+                        else:
+                            for k, v in tool_input.items():
+                                if isinstance(v, str) and v and k not in ("description",):
+                                    display_info = v
+                                    break
+
+                        if display_info:
+                            tools.append(f"{tool_name}: {display_info}")
+                        else:
+                            tools.append(tool_name)
 
             if texts or tools:
                 print(f'    messages.push({{type: "assistant", text: {json.dumps(chr(10).join(texts))}, tools: {json.dumps(tools)}, ts: {json.dumps(timestamp)}}});')
@@ -831,16 +917,16 @@ cat >> "$output" << 'FOOTER'
       const timeHtml = timeStr ? `<span class="timestamp">${timeStr}</span>` : '';
 
       if (msg.type === 'summary') {
-        container.innerHTML += `<div class="summary" style="animation-delay: ${delay}ms">${msg.text}</div>`;
+        container.innerHTML += `<div class="summary" id="msg-${index}" style="animation-delay: ${delay}ms">${msg.text}</div>`;
       } else if (msg.type === 'slashcommand') {
         container.innerHTML += `
-          <div class="message slashcommand" style="animation-delay: ${delay}ms">
+          <div class="message slashcommand" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">Slash Command: ${msg.command} ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}</div>
           </div>`;
       } else if (msg.type === 'user') {
         container.innerHTML += `
-          <div class="message user" style="animation-delay: ${delay}ms">
+          <div class="message user" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">You ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}</div>
           </div>`;
@@ -848,14 +934,14 @@ cat >> "$output" << 'FOOTER'
         let toolsHtml = '';
         if (msg.tools && msg.tools.length > 0) {
           toolsHtml = msg.tools.map(t => {
-            const parts = t.split(':');
-            const name = parts[0] || '';
-            const file = parts[1] ? parts[1].trim() : '';
-            return `<div class="tool"><span class="tool-name">${name}</span>${file ? `<span class="tool-file">${file}</span>` : ''}</div>`;
+            const colonIdx = t.indexOf(':');
+            const name = colonIdx > 0 ? t.substring(0, colonIdx) : t;
+            const detail = colonIdx > 0 ? t.substring(colonIdx + 1).trim() : '';
+            return `<div class="tool"><span class="tool-name">${name}</span>${detail ? `<span class="tool-detail">${detail.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>` : ''}</div>`;
           }).join('');
         }
         container.innerHTML += `
-          <div class="message assistant" style="animation-delay: ${delay}ms">
+          <div class="message assistant" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">Claude ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}${toolsHtml}</div>
           </div>`;
@@ -917,7 +1003,7 @@ cat >> "$output" << 'FOOTER'
       }
     }
 
-    function clearSearch() {
+    function clearSearch(scrollToId = null) {
       document.getElementById('searchInput').value = '';
       const allMessages = document.querySelectorAll('.message');
       allMessages.forEach((msg, i) => {
@@ -926,7 +1012,32 @@ cat >> "$output" << 'FOOTER'
         msg.classList.remove('has-match');
       });
       document.getElementById('searchMeta').style.display = 'none';
+
+      // If a scrollToId was provided, scroll to that message
+      if (scrollToId) {
+        const target = document.getElementById(scrollToId);
+        if (target) {
+          // Small delay to let DOM update
+          setTimeout(() => {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Brief highlight effect
+            target.style.boxShadow = '0 0 0 2px var(--accent-amber)';
+            setTimeout(() => { target.style.boxShadow = ''; }, 1500);
+          }, 50);
+        }
+      }
     }
+
+    // Click handler for search results - clears search and scrolls to clicked message
+    document.getElementById('messages').addEventListener('click', (e) => {
+      const msg = e.target.closest('.message');
+      if (msg && msg.classList.contains('has-match')) {
+        const msgId = msg.id;
+        if (msgId) {
+          clearSearch(msgId);
+        }
+      }
+    });
 
     // Event listeners
     let searchTimeout;
