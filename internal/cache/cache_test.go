@@ -17,16 +17,16 @@ func TestWriteAndRead(t *testing.T) {
 	// Test data
 	entries := []Entry{
 		{
-			ID:      "session-001",
-			Date:    time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-			Project: "my-project",
-			Summary: "First session summary",
+			SessionID: "session-001",
+			Date:      time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+			Project:   "my-project",
+			Summary:   "First session summary",
 		},
 		{
-			ID:      "session-002",
-			Date:    time.Date(2025, 1, 14, 9, 0, 0, 0, time.UTC),
-			Project: "another/project",
-			Summary: "Second session",
+			SessionID: "session-002",
+			Date:      time.Date(2025, 1, 14, 9, 0, 0, 0, time.UTC),
+			Project:   "another/project",
+			Summary:   "Second session",
 		},
 	}
 
@@ -48,8 +48,8 @@ func TestWriteAndRead(t *testing.T) {
 
 	// Verify entries
 	for i, want := range entries {
-		if got[i].ID != want.ID {
-			t.Errorf("entries[%d].ID = %q, want %q", i, got[i].ID, want.ID)
+		if got[i].SessionID != want.SessionID {
+			t.Errorf("entries[%d].SessionID = %q, want %q", i, got[i].SessionID, want.SessionID)
 		}
 		if got[i].Project != want.Project {
 			t.Errorf("entries[%d].Project = %q, want %q", i, got[i].Project, want.Project)
@@ -57,8 +57,8 @@ func TestWriteAndRead(t *testing.T) {
 		if got[i].Summary != want.Summary {
 			t.Errorf("entries[%d].Summary = %q, want %q", i, got[i].Summary, want.Summary)
 		}
-		// Date comparison (only to minute precision)
-		if got[i].Date.Format("2006-01-02 15:04") != want.Date.Format("2006-01-02 15:04") {
+		// Date comparison (only to second precision since we store unix timestamp)
+		if got[i].Date.Unix() != want.Date.Unix() {
 			t.Errorf("entries[%d].Date = %v, want %v", i, got[i].Date, want.Date)
 		}
 	}
@@ -73,10 +73,10 @@ func TestEscapeSpecialChars(t *testing.T) {
 	// Entry with special characters
 	entries := []Entry{
 		{
-			ID:      "session-special",
-			Date:    time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-			Project: "project",
-			Summary: "Summary with\ttab and\nnewline",
+			SessionID: "session-special",
+			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+			Project:   "project",
+			Summary:   "Summary with\ttab and\nnewline",
 		},
 	}
 
@@ -187,8 +187,8 @@ func TestReadMalformedLines(t *testing.T) {
 	tmpDir := t.TempDir()
 	cachePath := filepath.Join(tmpDir, "cache.tsv")
 
-	// Write malformed content directly
-	content := "good-id\t2025-01-15 10:00\tproject\tsummary\nbad line with not enough tabs\nanother-id\t2025-01-14 09:00\tproject2\tsummary2\n"
+	// Write malformed content directly (new format: sid, time, project, summary, mtime, parent_sid, full_date)
+	content := "good-id\t10:00\tproject\tsummary\t1705312800\t-\t2025-01-15\nbad line\nanother-id\t09:00\tproject2\tsummary2\t1705226400\t-\t2025-01-14\n"
 	os.WriteFile(cachePath, []byte(content), 0644)
 
 	c := New(cachePath)

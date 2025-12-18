@@ -13,10 +13,16 @@ import (
 
 // Entry represents a single cache entry
 type Entry struct {
-	ID      string
-	Date    time.Time
-	Project string
-	Summary string
+	SessionID string
+	Date      time.Time
+	Project   string
+	Summary   string
+	ParentSID string // Parent session ID for branches
+}
+
+// Deprecated: ID is deprecated, use SessionID instead
+func (e Entry) ID() string {
+	return e.SessionID
 }
 
 // Cache manages the session cache file
@@ -36,13 +42,18 @@ func (c *Cache) Path() string {
 
 // Write writes entries to the cache file in TSV format
 func (c *Cache) Write(entries []Entry) error {
+	return Write(c.path, entries)
+}
+
+// Write writes entries to a cache file in TSV format (standalone function)
+func Write(path string, entries []Entry) error {
 	// Ensure directory exists
-	dir := filepath.Dir(c.path)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	f, err := os.Create(c.path)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
@@ -53,11 +64,20 @@ func (c *Cache) Write(entries []Entry) error {
 		summary := escapeTSV(e.Summary)
 		project := escapeTSV(e.Project)
 
-		line := fmt.Sprintf("%s\t%s\t%s\t%s\n",
-			e.ID,
-			e.Date.Format("2006-01-02 15:04"),
+		// TSV format: sid, date, project, summary, mtime, parent_sid, full_date
+		parentSID := e.ParentSID
+		if parentSID == "" {
+			parentSID = "-"
+		}
+
+		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			e.SessionID,
+			e.Date.Format("15:04"),
 			project,
 			summary,
+			e.Date.Unix(),
+			parentSID,
+			e.Date.Format("2006-01-02"),
 		)
 		if _, err := f.WriteString(line); err != nil {
 			return err
@@ -69,7 +89,12 @@ func (c *Cache) Write(entries []Entry) error {
 
 // Read reads entries from the cache file
 func (c *Cache) Read() ([]Entry, error) {
-	f, err := os.Open(c.path)
+	return Read(c.path)
+}
+
+// Read reads entries from a cache file (standalone function)
+func Read(path string) ([]Entry, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -80,18 +105,34 @@ func (c *Cache) Read() ([]Entry, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 4)
+		parts := strings.Split(line, "\t")
 		if len(parts) < 4 {
 			continue // Skip malformed lines
 		}
 
-		date, _ := time.Parse("2006-01-02 15:04", parts[1])
+		// Parse mtime if available (column 5)
+		var date time.Time
+		if len(parts) >= 5 {
+			var mtime int64
+			fmt.Sscanf(parts[4], "%d", &mtime)
+			date = time.Unix(mtime, 0)
+		} else {
+			// Fallback to parsing time from column 2
+			date, _ = time.Parse("15:04", parts[1])
+		}
+
+		// Parse parent_sid if available (column 6)
+		parentSID := ""
+		if len(parts) >= 6 && parts[5] != "-" {
+			parentSID = parts[5]
+		}
 
 		entries = append(entries, Entry{
-			ID:      parts[0],
-			Date:    date,
-			Project: unescapeTSV(parts[2]),
-			Summary: unescapeTSV(parts[3]),
+			SessionID: parts[0],
+			Date:      date,
+			Project:   unescapeTSV(parts[2]),
+			Summary:   unescapeTSV(parts[3]),
+			ParentSID: parentSID,
 		})
 	}
 
@@ -123,9 +164,18 @@ func (c *Cache) Clear() error {
 
 // BuildFrom builds the cache from an adapter
 func (c *Cache) BuildFrom(adapter adapters.Adapter) error {
-	sessions, err := adapter.ListSessions()
+	entries, err := BuildFrom(adapter)
 	if err != nil {
 		return err
+	}
+	return c.Write(entries)
+}
+
+// BuildFrom builds cache entries from an adapter (standalone function)
+func BuildFrom(adapter adapters.Adapter) ([]Entry, error) {
+	sessions, err := adapter.ListSessions()
+	if err != nil {
+		return nil, err
 	}
 
 	var entries []Entry
@@ -135,14 +185,14 @@ func (c *Cache) BuildFrom(adapter adapters.Adapter) error {
 			continue // Skip sessions that fail to parse
 		}
 		entries = append(entries, Entry{
-			ID:      meta.ID,
-			Date:    meta.Date,
-			Project: meta.Project,
-			Summary: meta.Summary,
+			SessionID: meta.ID,
+			Date:      meta.Date,
+			Project:   meta.Project,
+			Summary:   meta.Summary,
 		})
 	}
 
-	return c.Write(entries)
+	return entries, nil
 }
 
 // Helper functions

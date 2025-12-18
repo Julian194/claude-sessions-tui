@@ -263,10 +263,10 @@ func TestExportHTML(t *testing.T) {
 - [x] **2.3** Implement stats calculation (`internal/stats/`)
 - [x] **2.4** Implement HTML export (`internal/export/html.go`)
 - [x] **2.5** Implement Markdown export (`internal/export/markdown.go`)
-- [ ] **2.6** Implement TUI/fzf integration (`internal/tui/`)
-- [ ] **2.7** Implement main entry point with subcommand routing
-- [ ] **2.8** All tests pass against Go implementation
-- [ ] **2.9** Manual testing: `go run ./cmd/sessions` works like old scripts
+- [x] **2.6** Implement TUI/fzf integration (`internal/tui/`)
+- [x] **2.7** Implement main entry point with subcommand routing
+- [x] **2.8** All tests pass against Go implementation
+- [x] **2.9** Manual testing: `go run ./cmd/sessions` works like old scripts
 - [ ] **2.10** Update Homebrew formula for Go binary (invalidate cache on upgrade)
 
 ### Phase 3: OpenCode Adapter

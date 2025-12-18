@@ -21,6 +21,7 @@ type Adapter interface {
 	// Content extraction
 	GetSummaries(id string) ([]string, error)
 	GetFilesTouched(id string) ([]string, error)
+	GetSlashCommands(id string) ([]string, error)
 	GetStats(id string) (*Stats, error)
 	GetFirstMessage(id string) (string, error)
 

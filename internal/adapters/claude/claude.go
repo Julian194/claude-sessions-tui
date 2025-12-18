@@ -56,8 +56,13 @@ func (a *Adapter) ListSessions() ([]string, error) {
 			return nil // Skip errors
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ".jsonl") {
+			base := filepath.Base(path)
+			// Filter out agent sessions
+			if strings.HasPrefix(base, "agent-") {
+				return nil
+			}
 			sessions = append(sessions, sessionFile{
-				id:    strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+				id:    strings.TrimSuffix(base, ".jsonl"),
 				mtime: info.ModTime(),
 			})
 		}
@@ -249,6 +254,59 @@ func (a *Adapter) GetFilesTouched(id string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// GetSlashCommands returns slash commands used in the session
+func (a *Adapter) GetSlashCommands(id string) ([]string, error) {
+	path := a.GetSessionFile(id)
+	if path == "" {
+		return nil, os.ErrNotExist
+	}
+
+	records, err := a.parseFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	cmdSet := make(map[string]bool)
+	cmdRegex := regexp.MustCompile(`<command-name>(/[^<]*)</command-name>`)
+
+	for _, r := range records {
+		// Check for command-name tags in user messages
+		if r.Type == "user" {
+			if content, ok := r.Message.Content.(string); ok {
+				matches := cmdRegex.FindAllStringSubmatch(content, -1)
+				for _, m := range matches {
+					if len(m) > 1 {
+						cmdSet[m[1]] = true
+					}
+				}
+			}
+		}
+		// Check for SlashCommand tool calls
+		if r.Type == "assistant" {
+			if content, ok := r.Message.Content.([]interface{}); ok {
+				for _, item := range content {
+					if m, ok := item.(map[string]interface{}); ok {
+						if m["type"] == "tool_use" && m["name"] == "SlashCommand" {
+							if input, ok := m["input"].(map[string]interface{}); ok {
+								if cmd, ok := input["command"].(string); ok {
+									cmdSet[cmd] = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	cmds := make([]string, 0, len(cmdSet))
+	for cmd := range cmdSet {
+		cmds = append(cmds, cmd)
+	}
+	sort.Strings(cmds)
+	return cmds, nil
 }
 
 // GetStats returns session statistics
