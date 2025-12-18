@@ -271,10 +271,10 @@ func TestExportHTML(t *testing.T) {
 
 ### Phase 3: Polish & Release
 
-- [ ] **3.1** Update README for multi-agent support
-- [ ] **3.2** Add `--help` with provider-specific info
-- [ ] **3.3** Update Homebrew formula with all symlinks
-- [ ] **3.4** Tag release
+- [x] **3.1** Update README for multi-agent support
+- [x] **3.2** Add `--help` with provider-specific info
+- [x] **3.3** Update Homebrew formula for Go build
+- [ ] **3.4** Tag v2.0.0 release
 
 ### Phase 4: OpenCode Adapter
 
