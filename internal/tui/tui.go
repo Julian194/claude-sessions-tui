@@ -68,6 +68,7 @@ func Run(cfg Config) (*Result, error) {
 		"--delimiter=\t",
 		"--with-nth=2,3,4",
 		"--ansi",
+		"--no-sort",
 		fmt.Sprintf("--preview=%s", previewCmd),
 		"--preview-window=right:50%:wrap",
 		fmt.Sprintf("--header=%s", loadingHeader),
