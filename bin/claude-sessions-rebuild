@@ -20,7 +20,7 @@ trap 'rm -f "$TEMP_NEW" "$TEMP_MERGED" "$TEMP_MERGED.ids"' EXIT
 extract_meta() {
   local f="$1"
   [ ! -f "$f" ] && return
-  local sid proj date mtime summary
+  local sid proj date mtime summary parent_sid
   sid=$(basename "$f" .jsonl)
   proj=$(basename "$(dirname "$f")" | sed "s/-Users-[^-]*-code-//")
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -32,26 +32,59 @@ extract_meta() {
   fi
   summary=$(head -c 50000 "$f" | grep -m1 -o '"summary":"[^"]*"' | sed 's/"summary":"//;s/"$//' || true)
   [ -z "$summary" ] && summary="-"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime"
+  # Extract parent session ID if this is a branched session
+  parent_sid=$(head -c 1000 "$f" | grep -m1 -o '"parentSession":"[^"]*"' | sed 's/"parentSession":"//;s/"$//' || true)
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid"
 }
 export -f extract_meta
 
-# Check if incremental update is possible (cache exists, has content, and has mtime column)
+# Check if incremental update is possible (cache exists, has content, and has mtime/parent column)
 incremental=false
 if [ -f "$CACHE" ] && [ -s "$CACHE" ]; then
-  # Check if cache has 5 columns (new format with mtime)
-  if [ "$(head -1 "$CACHE" | awk -F'\t' '{print NF}')" -eq 5 ]; then
+  # Check if cache has 5 or 6 columns (format with mtime, optionally parent_sid)
+  cols=$(head -1 "$CACHE" | awk -F'\t' '{print NF}')
+  if [ "$cols" -ge 5 ]; then
     incremental=true
   fi
 fi
+
+# ANSI color codes for branch display
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Group branches under their parents
+group_branches() {
+  local input="$1"
+  local temp_roots="$CLAUDE_DIR/.cache-roots-$$"
+  local temp_branches="$CLAUDE_DIR/.cache-branches-$$"
+  trap 'rm -f "$temp_roots" "$temp_branches"' RETURN
+
+  # Separate root sessions (no parent) and branches (have parent)
+  awk -F'\t' '$6 == "" || $6 == "-" { print }' "$input" > "$temp_roots"
+  awk -F'\t' '$6 != "" && $6 != "-" { print }' "$input" > "$temp_branches"
+
+  # For each root session, output it followed by its branches
+  while IFS=$'\t' read -r sid date proj summary mtime parent_sid; do
+    # Output the root session
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$date" "$proj" "$summary" "$mtime" "$parent_sid"
+
+    # Find and output any branches of this session (with visual formatting)
+    while IFS=$'\t' read -r b_sid b_date b_proj b_summary b_mtime b_parent; do
+      if [ "$b_parent" = "$sid" ]; then
+        # Format branch with indentation and color
+        printf '%s\t%b  └─ %s%b\t%s\t%s\t%s\t%s\n' "$b_sid" "$CYAN" "$b_date" "$NC" "$b_proj" "$b_summary" "$b_mtime" "$b_parent"
+      fi
+    done < "$temp_branches"
+  done < "$temp_roots"
+}
 
 if $incremental; then
   # Find only files newer than cache
   newer_files=$(find "$PROJECTS" -name "*.jsonl" -newer "$CACHE" ! -name "agent-*" 2>/dev/null || true)
 
   if [ -z "$newer_files" ]; then
-    # No changes - just output existing cache (already sorted)
-    cat "$CACHE"
+    # No changes - output grouped cache
+    group_branches "$CACHE"
     exit 0
   fi
 
@@ -79,11 +112,16 @@ if $incremental; then
     cp "$CACHE" "$TEMP_MERGED"
   fi
 
-  # Merge and sort by mtime (column 5, descending = newest first)
-  cat "$TEMP_NEW" "$TEMP_MERGED" | sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
+  # Merge, sort by mtime (column 5, descending = newest first), and group branches
+  TEMP_SORTED="$CLAUDE_DIR/.cache-sorted-$$"
+  cat "$TEMP_NEW" "$TEMP_MERGED" | sort -t$'\t' -k5 -rn | awk -F'\t' '!seen[$1]++' > "$TEMP_SORTED"
+  cp "$TEMP_SORTED" "$CACHE"
+  group_branches "$TEMP_SORTED"
+  rm -f "$TEMP_SORTED"
 
 else
   # Full rebuild - sequential (faster due to less overhead)
+  TEMP_FULL="$CLAUDE_DIR/.cache-full-$$"
   if [[ "$OSTYPE" == "darwin"* ]]; then
     ls -t "$PROJECTS"/*/*.jsonl 2>/dev/null | grep -v 'agent-'
   else
@@ -91,5 +129,8 @@ else
       sort -rn | cut -d' ' -f2- | grep -v 'agent-'
   fi | while read -r f; do
     extract_meta "$f"
-  done | awk -F'\t' '!seen[$1]++' | tee "$CACHE"
+  done | awk -F'\t' '!seen[$1]++' > "$TEMP_FULL"
+  cp "$TEMP_FULL" "$CACHE"
+  group_branches "$TEMP_FULL"
+  rm -f "$TEMP_FULL"
 fi
