@@ -29,6 +29,7 @@ print()
 
 # Track last slash command for associating isMeta content
 last_slash_command = None
+last_slash_args = None
 
 with open("$f") as fp:
     for line in fp:
@@ -63,14 +64,9 @@ with open("$f") as fp:
                     if cmd_match:
                         cmd_name = cmd_match.group(1)
                         cmd_args = args_match.group(1).strip() if args_match else ""
-                        if cmd_args:
-                            # Command has args - show it directly
-                            print(f"## SlashCommand: {cmd_name}")
-                            print(cmd_args)
-                            print()
-                        else:
-                            # Command without args - track for isMeta expansion
-                            last_slash_command = cmd_name
+                        # Track command and args for isMeta expansion
+                        last_slash_command = cmd_name
+                        last_slash_args = cmd_args if cmd_args else None
                         continue
 
                     # Skip other XML-tagged system messages
@@ -88,9 +84,18 @@ with open("$f") as fp:
                             text = item.get("text", "").strip()
                             if text and last_slash_command:
                                 print(f"## SlashCommand: {last_slash_command}")
+                                print()
+                                if last_slash_args:
+                                    print("### Input:")
+                                    print(last_slash_args)
+                                    print()
+                                    print("---")
+                                    print()
+                                    print("### Prompt:")
                                 print(text)
                                 print()
                                 last_slash_command = None
+                                last_slash_args = None
 
             # Assistant message
             elif role == "assistant" and isinstance(content, list):
