@@ -37,7 +37,7 @@ jobs:
       - name: Fish syntax check
         run: |
           brew install fish
-          fish -n bin/test-pr && echo "✓ bin/test-pr"
+          fish -n scripts/test-pr && echo "✓ scripts/test-pr"
 
       - name: Check dependencies available
         run: |
