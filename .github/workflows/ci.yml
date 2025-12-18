@@ -33,6 +33,7 @@ jobs:
       - name: Python syntax check
         run: |
           python3 -m py_compile bin/claude-sessions-stats && echo "✓ bin/claude-sessions-stats"
+          python3 -m py_compile bin/claude-sessions-extract && echo "✓ bin/claude-sessions-extract"
 
       - name: Fish syntax check
         run: |
@@ -52,6 +53,48 @@ jobs:
           mkdir -p "$CLAUDE_DIR/projects"
           bin/claude-sessions-rebuild || true
           echo "✓ rebuild completed"
+
+      - name: Test Python extractor with mock session
+        run: |
+          export CLAUDE_DIR=$(mktemp -d)
+          mkdir -p "$CLAUDE_DIR/projects/test-project"
+          echo '{"type":"summary","summary":"Test session summary"}' > "$CLAUDE_DIR/projects/test-project/abc123.jsonl"
+          output=$(echo "$CLAUDE_DIR/projects/test-project/abc123.jsonl" | bin/claude-sessions-extract)
+          if echo "$output" | grep -q "abc123.*test-project.*Test session summary"; then
+            echo "✓ extractor parsed session correctly"
+          else
+            echo "❌ extractor output incorrect: $output"
+            exit 1
+          fi
+
+      - name: Test Python extractor with parent session
+        run: |
+          export CLAUDE_DIR=$(mktemp -d)
+          mkdir -p "$CLAUDE_DIR/projects/test-project"
+          echo '{"type":"branch","parentSession":"parent-id"}' > "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
+          echo '{"type":"summary","summary":"Child session"}' >> "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
+          output=$(echo "$CLAUDE_DIR/projects/test-project/child-id.jsonl" | bin/claude-sessions-extract)
+          parent=$(echo "$output" | cut -f6)
+          if [ "$parent" = "parent-id" ]; then
+            echo "✓ extractor parsed parent session correctly"
+          else
+            echo "❌ parent session incorrect: got '$parent'"
+            exit 1
+          fi
+
+      - name: Test Python extractor stream mode
+        run: |
+          export CLAUDE_DIR=$(mktemp -d)
+          mkdir -p "$CLAUDE_DIR/projects/test-project"
+          echo '{"type":"summary","summary":"Session 1"}' > "$CLAUDE_DIR/projects/test-project/session1.jsonl"
+          echo '{"type":"summary","summary":"Session 2"}' > "$CLAUDE_DIR/projects/test-project/session2.jsonl"
+          output=$(ls "$CLAUDE_DIR/projects/test-project"/*.jsonl | bin/claude-sessions-extract --stream)
+          if echo "$output" | grep -q "HEADER"; then
+            echo "✓ stream mode outputs date headers"
+          else
+            echo "❌ stream mode missing date headers"
+            exit 1
+          fi
 
       - name: Test export with invalid session
         run: |
