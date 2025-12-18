@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.5] - 2025-12-18
+
+### Added
+
+- add session branching feature
+
+### Changed
+
+- replace bash extraction with Python for 5x faster loading
+
+### Fixed
+
+- ci:  update test-pr path to scripts/
+- ci:  remove references to moved scripts
+- ignore date headers on enter key
+- show last directory segment for root workspace sessions
+- display orphaned branches correctly
+- date separators now appear above their sessions
+- centralize temp file cleanup in EXIT trap
+
 ## [Unreleased]
 
 ### Added
