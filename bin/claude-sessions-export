@@ -576,6 +576,11 @@ cat > "$output" << HEADER
 
     .message.has-match {
       border-color: var(--accent-amber);
+      cursor: pointer;
+    }
+
+    .message.has-match:hover {
+      background: var(--bg-hover);
     }
 
     .message.hidden-by-search {
@@ -912,16 +917,16 @@ cat >> "$output" << 'FOOTER'
       const timeHtml = timeStr ? `<span class="timestamp">${timeStr}</span>` : '';
 
       if (msg.type === 'summary') {
-        container.innerHTML += `<div class="summary" style="animation-delay: ${delay}ms">${msg.text}</div>`;
+        container.innerHTML += `<div class="summary" id="msg-${index}" style="animation-delay: ${delay}ms">${msg.text}</div>`;
       } else if (msg.type === 'slashcommand') {
         container.innerHTML += `
-          <div class="message slashcommand" style="animation-delay: ${delay}ms">
+          <div class="message slashcommand" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">Slash Command: ${msg.command} ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}</div>
           </div>`;
       } else if (msg.type === 'user') {
         container.innerHTML += `
-          <div class="message user" style="animation-delay: ${delay}ms">
+          <div class="message user" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">You ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}</div>
           </div>`;
@@ -936,7 +941,7 @@ cat >> "$output" << 'FOOTER'
           }).join('');
         }
         container.innerHTML += `
-          <div class="message assistant" style="animation-delay: ${delay}ms">
+          <div class="message assistant" id="msg-${index}" style="animation-delay: ${delay}ms">
             <div class="role">Claude ${timeHtml}</div>
             <div class="content">${marked.parse(msg.text)}${toolsHtml}</div>
           </div>`;
@@ -998,7 +1003,7 @@ cat >> "$output" << 'FOOTER'
       }
     }
 
-    function clearSearch() {
+    function clearSearch(scrollToId = null) {
       document.getElementById('searchInput').value = '';
       const allMessages = document.querySelectorAll('.message');
       allMessages.forEach((msg, i) => {
@@ -1007,7 +1012,32 @@ cat >> "$output" << 'FOOTER'
         msg.classList.remove('has-match');
       });
       document.getElementById('searchMeta').style.display = 'none';
+
+      // If a scrollToId was provided, scroll to that message
+      if (scrollToId) {
+        const target = document.getElementById(scrollToId);
+        if (target) {
+          // Small delay to let DOM update
+          setTimeout(() => {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Brief highlight effect
+            target.style.boxShadow = '0 0 0 2px var(--accent-amber)';
+            setTimeout(() => { target.style.boxShadow = ''; }, 1500);
+          }, 50);
+        }
+      }
     }
+
+    // Click handler for search results - clears search and scrolls to clicked message
+    document.getElementById('messages').addEventListener('click', (e) => {
+      const msg = e.target.closest('.message');
+      if (msg && msg.classList.contains('has-match')) {
+        const msgId = msg.id;
+        if (msgId) {
+          clearSearch(msgId);
+        }
+      }
+    });
 
     // Event listeners
     let searchTimeout;
