@@ -41,6 +41,11 @@ line=$(echo "$result" | tail -n +2)
 
 sid=$(echo "$line" | cut -f1)
 
+# Ignore date headers - restart selection
+if [ "$sid" = "---HEADER---" ]; then
+  exec "$0"
+fi
+
 case "$key" in
   ctrl-b)
     # Branch session: create copy and resume the new one
