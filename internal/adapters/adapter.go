@@ -34,10 +34,11 @@ type Adapter interface {
 
 // SessionMeta contains basic session metadata for cache building
 type SessionMeta struct {
-	ID      string
-	Date    time.Time
-	Project string
-	Summary string
+	ID        string
+	Date      time.Time
+	Project   string
+	Summary   string
+	ParentSID string // Parent session ID for branches
 }
 
 // SessionInfo contains detailed session information for preview

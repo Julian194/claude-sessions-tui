@@ -123,14 +123,17 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	// Extract project from path
 	project := extractProject(path)
 
-	// Parse file for summary
+	// Parse file for summary and parent session
 	summary := ""
+	parentSID := ""
 	records, err := a.parseFile(path)
 	if err == nil {
 		for _, r := range records {
-			if r.Type == "summary" {
+			if r.Type == "summary" && summary == "" {
 				summary = r.Summary
-				break
+			}
+			if r.Type == "branch" && r.ParentSession != "" {
+				parentSID = r.ParentSession
 			}
 		}
 		// Fallback to first user message if no summary
@@ -147,10 +150,11 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	}
 
 	return &adapters.SessionMeta{
-		ID:      id,
-		Date:    info.ModTime(),
-		Project: project,
-		Summary: summary,
+		ID:        id,
+		Date:      info.ModTime(),
+		Project:   project,
+		Summary:   summary,
+		ParentSID: parentSID,
 	}, nil
 }
 
@@ -452,13 +456,14 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 // Internal types for parsing
 
 type record struct {
-	Type      string   `json:"type"`
-	Summary   string   `json:"summary,omitempty"`
-	Message   message  `json:"message,omitempty"`
-	Cwd       string   `json:"cwd,omitempty"`
-	GitBranch string   `json:"gitBranch,omitempty"`
-	Timestamp string   `json:"timestamp,omitempty"`
-	IsMeta    bool     `json:"isMeta,omitempty"`
+	Type          string  `json:"type"`
+	Summary       string  `json:"summary,omitempty"`
+	Message       message `json:"message,omitempty"`
+	Cwd           string  `json:"cwd,omitempty"`
+	GitBranch     string  `json:"gitBranch,omitempty"`
+	Timestamp     string  `json:"timestamp,omitempty"`
+	IsMeta        bool    `json:"isMeta,omitempty"`
+	ParentSession string  `json:"parentSession,omitempty"` // For branch metadata
 }
 
 type message struct {

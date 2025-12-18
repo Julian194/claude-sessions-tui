@@ -189,6 +189,7 @@ func BuildFrom(adapter adapters.Adapter) ([]Entry, error) {
 			Date:      meta.Date,
 			Project:   meta.Project,
 			Summary:   meta.Summary,
+			ParentSID: meta.ParentSID,
 		})
 	}
 
