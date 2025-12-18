@@ -61,11 +61,11 @@ func main() {
 		}
 		err = runCopyMD(adapter, args[0])
 	case "help", "--help", "-h":
-		printUsage(binaryName)
+		printUsage(binaryName, adapter)
 		os.Exit(0)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		printUsage(binaryName)
+		printUsage(binaryName, adapter)
 		os.Exit(1)
 	}
 
@@ -239,8 +239,14 @@ func branchSession(adapter adapters.Adapter, sid string, workDir string) error {
 	return resumeSession(adapter, newSID, workDir)
 }
 
-func printUsage(binaryName string) {
-	fmt.Printf(`Usage: %s [command] [arguments]
+func printUsage(binaryName string, adapter adapters.Adapter) {
+	fmt.Printf(`%s - browse and export AI coding sessions (v2.0.0)
+
+Provider: %s
+Data:     %s
+Cache:    %s
+
+Usage: %s [command] [arguments]
 
 Commands:
   (default)     Launch interactive TUI
@@ -262,5 +268,5 @@ Environment:
   SESSIONS_CACHE_DIR   Override cache directory
   CLAUDE_DIR           Override Claude data directory
 
-`, binaryName)
+`, binaryName, adapter.Name(), adapter.DataDir(), adapter.CacheDir(), binaryName)
 }
