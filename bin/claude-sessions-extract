@@ -26,13 +26,14 @@ def extract_meta(filepath: str) -> tuple | None:
         sid = path.stem
 
         # Project name from parent directory
-        proj = path.parent.name
+        orig_proj = path.parent.name
         # Clean up project name (remove -Users-xxx-... prefix patterns)
         # Pattern: -Users-username-Documents-Workspace-projectname -> projectname
-        proj = re.sub(r"^-Users-[^-]+-Documents-Workspace-?", "", proj)
+        proj = re.sub(r"^-Users-[^-]+-Documents-Workspace-?", "", orig_proj)
         proj = re.sub(r"^-Users-[^-]+-code-?", "", proj)
         if not proj:
-            proj = "~"  # Root workspace sessions
+            # Fallback: last segment of original path (e.g. "Workspace" from "-Users-...-Workspace")
+            proj = orig_proj.rsplit("-", 1)[-1] if "-" in orig_proj else orig_proj
 
         # File stats (single syscall)
         stat = path.stat()
