@@ -1,20 +1,16 @@
 class ClaudeSessions < Formula
   desc "TUI for browsing, searching, and exporting Claude Code sessions"
   homepage "https://github.com/Julian194/claude-sessions-tui"
-  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.2.5"
-  version "0.2.5"
+  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.3.0"
+  version "0.3.0"
   license "MIT"
   head "https://github.com/Julian194/claude-sessions-tui.git", branch: "main"
 
+  depends_on "go" => :build
   depends_on "fzf"
-  depends_on "python@3.11" => :recommended
 
   def install
-    bin.install "bin/claude-sessions"
-    bin.install "bin/claude-sessions-preview"
-    bin.install "bin/claude-sessions-rebuild"
-    bin.install "bin/claude-sessions-stats"
-    bin.install "bin/claude-sessions-export"
+    system "go", "build", *std_go_args(ldflags: "-s -w"), "-o", bin/"claude-sessions", "./cmd/sessions"
   end
 
   def caveats
@@ -24,17 +20,19 @@ class ClaudeSessions < Formula
 
       Usage:
         claude-sessions          # Launch the TUI browser
-        claude-sessions-rebuild  # Manually rebuild the session cache
+        claude-sessions rebuild  # Manually rebuild the session cache
 
       Keyboard shortcuts in the TUI:
         Enter   - Resume selected session
         Ctrl-O  - Export session as HTML
+        Ctrl-Y  - Copy session as markdown
+        Ctrl-B  - Branch session
         Ctrl-R  - Refresh session list
         Esc     - Exit
     EOS
   end
 
   test do
-    assert_match "Usage:", shell_output("#{bin}/claude-sessions-stats 2>&1", 1)
+    assert_match "Usage:", shell_output("#{bin}/claude-sessions help")
   end
 end

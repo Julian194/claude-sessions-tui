@@ -27,6 +27,9 @@ type Adapter interface {
 
 	// Export
 	ExportMessages(id string) ([]Message, error)
+
+	// Session operations
+	BranchSession(id string) (string, error) // Returns new session ID
 }
 
 // SessionMeta contains basic session metadata for cache building

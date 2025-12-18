@@ -267,29 +267,23 @@ func TestExportHTML(t *testing.T) {
 - [x] **2.7** Implement main entry point with subcommand routing
 - [x] **2.8** All tests pass against Go implementation
 - [x] **2.9** Manual testing: `go run ./cmd/sessions` works like old scripts
-- [ ] **2.10** Update Homebrew formula for Go binary (invalidate cache on upgrade)
+- [x] **2.10** Update Homebrew formula for Go binary (invalidate cache on upgrade)
 
-### Phase 3: OpenCode Adapter
+### Phase 3: Polish & Release
 
-- [ ] **3.1** Create OpenCode test fixtures
-- [ ] **3.2** Write OpenCode adapter tests
-- [ ] **3.3** Implement OpenCode adapter (`internal/adapters/opencode/`)
-- [ ] **3.4** Create `opencode-sessions` symlink
-- [ ] **3.5** Test full workflow: browse, preview, export, resume
+- [ ] **3.1** Update README for multi-agent support
+- [ ] **3.2** Add `--help` with provider-specific info
+- [ ] **3.3** Consider renaming repo (e.g., `ai-sessions-tui`)
+- [ ] **3.4** Update Homebrew formula with all symlinks
+- [ ] **3.5** Tag release
 
-### Phase 4: Polish & Release
+### Phase 4: OpenCode Adapter
 
-- [ ] **4.1** Update README for multi-agent support
-- [ ] **4.2** Add `--help` with provider-specific info
-- [ ] **4.3** Consider renaming repo (e.g., `ai-sessions-tui`)
-- [ ] **4.4** Update Homebrew formula with all symlinks
-- [ ] **4.5** Tag release
-
-### Phase 5: Future Adapters (optional)
-
-- [ ] **5.1** Research Aider session storage format
-- [ ] **5.2** Research Cursor session storage format
-- [ ] **5.3** Implement additional adapters as needed
+- [ ] **4.1** Create OpenCode test fixtures
+- [ ] **4.2** Write OpenCode adapter tests
+- [ ] **4.3** Implement OpenCode adapter (`internal/adapters/opencode/`)
+- [ ] **4.4** Create `opencode-sessions` symlink
+- [ ] **4.5** Test full workflow: browse, preview, export, resume
 
 ---
 

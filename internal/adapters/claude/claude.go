@@ -2,7 +2,9 @@ package claude
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -546,4 +548,56 @@ func calculateCost(input, output, cacheRead, cacheWrite int) float64 {
 	cost += float64(cacheWrite) * cacheWritePrice / 1_000_000
 
 	return cost
+}
+
+// BranchSession creates a copy of a session for branching
+func (a *Adapter) BranchSession(id string) (string, error) {
+	originalPath := a.GetSessionFile(id)
+	if originalPath == "" {
+		return "", os.ErrNotExist
+	}
+
+	// Generate new UUID
+	newID := generateUUID()
+
+	// New file in same directory
+	dir := filepath.Dir(originalPath)
+	newPath := filepath.Join(dir, newID+".jsonl")
+
+	// Read original content
+	content, err := os.ReadFile(originalPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Create branch metadata
+	branchMeta := map[string]interface{}{
+		"type":          "branch",
+		"parentSession": id,
+		"branchedAt":    time.Now().UTC().Format(time.RFC3339),
+	}
+	metaJSON, _ := json.Marshal(branchMeta)
+
+	// Write new file with branch metadata prepended
+	newContent := append(metaJSON, '\n')
+	newContent = append(newContent, content...)
+
+	if err := os.WriteFile(newPath, newContent, 0644); err != nil {
+		return "", err
+	}
+
+	// Touch the file to ensure proper mtime
+	now := time.Now()
+	os.Chtimes(newPath, now, now)
+
+	return newID, nil
+}
+
+// generateUUID creates a random UUID v4
+func generateUUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // Variant is 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

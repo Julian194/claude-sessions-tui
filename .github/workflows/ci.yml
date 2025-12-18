@@ -28,311 +28,90 @@ jobs:
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${total}%"
           if (( $(echo "$total < 70" | bc -l) )); then
-            echo "❌ Coverage below 70%"
+            echo "Coverage below 70%"
             exit 1
           fi
-          echo "✓ Coverage OK"
+          echo "Coverage OK"
 
-  smoke-tests:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        run: go build -o sessions ./cmd/sessions
+
+      - name: Test binary runs
+        run: ./sessions help
+
+  integration-tests:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check scripts are executable
-        run: |
-          for script in bin/*; do
-            if [ ! -x "$script" ]; then
-              echo "❌ $script is not executable"
-              exit 1
-            fi
-            echo "✓ $script"
-          done
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
-      - name: Bash syntax check
-        run: |
-          for script in bin/claude-sessions bin/claude-sessions-branch bin/claude-sessions-copy-md bin/claude-sessions-export \
-                        bin/claude-sessions-preview bin/claude-sessions-rebuild bin/claude-sessions-reset-header; do
-            bash -n "$script" && echo "✓ $script"
-          done
-
-      - name: Python syntax check
-        run: |
-          python3 -m py_compile bin/claude-sessions-stats && echo "✓ bin/claude-sessions-stats"
-          python3 -m py_compile bin/claude-sessions-extract && echo "✓ bin/claude-sessions-extract"
-
-      - name: Fish syntax check
-        run: |
-          brew install fish
-          fish -n scripts/test-pr && echo "✓ scripts/test-pr"
+      - name: Build binary
+        run: go build -o sessions ./cmd/sessions
 
       - name: Check dependencies available
         run: |
           brew install fzf jq
-          command -v fzf && echo "✓ fzf"
-          command -v python3 && echo "✓ python3"
-          command -v jq && echo "✓ jq"
+          command -v fzf && echo "fzf OK"
+          command -v jq && echo "jq OK"
 
       - name: Test rebuild with no sessions
         run: |
           export CLAUDE_DIR=$(mktemp -d)
           mkdir -p "$CLAUDE_DIR/projects"
-          bin/claude-sessions-rebuild || true
-          echo "✓ rebuild completed"
+          ./sessions rebuild || true
+          echo "rebuild completed"
 
-      - name: Test Python extractor with mock session
+      - name: Test preview with mock session
         run: |
           export CLAUDE_DIR=$(mktemp -d)
           mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test session summary"}' > "$CLAUDE_DIR/projects/test-project/abc123.jsonl"
-          output=$(echo "$CLAUDE_DIR/projects/test-project/abc123.jsonl" | bin/claude-sessions-extract)
-          if echo "$output" | grep -q "abc123.*test-project.*Test session summary"; then
-            echo "✓ extractor parsed session correctly"
+          echo '{"type":"summary","summary":"Test session summary"}' > "$CLAUDE_DIR/projects/test-project/abc12345-1234-1234-1234-123456789abc.jsonl"
+          echo '{"cwd":"/test/dir","gitBranch":"main"}' >> "$CLAUDE_DIR/projects/test-project/abc12345-1234-1234-1234-123456789abc.jsonl"
+          output=$(./sessions preview abc12345-1234-1234-1234-123456789abc 2>&1)
+          if echo "$output" | grep -q "test-project"; then
+            echo "preview shows project name"
           else
-            echo "❌ extractor output incorrect: $output"
+            echo "preview output incorrect: $output"
             exit 1
           fi
 
-      - name: Test Python extractor with parent session
+      - name: Test stats with mock session
         run: |
           export CLAUDE_DIR=$(mktemp -d)
           mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"branch","parentSession":"parent-id"}' > "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
-          echo '{"type":"summary","summary":"Child session"}' >> "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
-          output=$(echo "$CLAUDE_DIR/projects/test-project/child-id.jsonl" | bin/claude-sessions-extract)
-          parent=$(echo "$output" | cut -f6)
-          if [ "$parent" = "parent-id" ]; then
-            echo "✓ extractor parsed parent session correctly"
+          echo '{"type":"user","message":{"role":"user","content":"Hello"}}' > "$CLAUDE_DIR/projects/test-project/test-session.jsonl"
+          echo '{"type":"assistant","message":{"role":"assistant","content":"Hi","usage":{"input_tokens":10,"output_tokens":5}}}' >> "$CLAUDE_DIR/projects/test-project/test-session.jsonl"
+          output=$(./sessions stats test-session 2>&1)
+          if echo "$output" | grep -qi "token\|message"; then
+            echo "stats shows token/message info"
           else
-            echo "❌ parent session incorrect: got '$parent'"
+            echo "stats output incorrect: $output"
             exit 1
           fi
 
-      - name: Test Python extractor stream mode
+      - name: Fish syntax check
         run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Session 1"}' > "$CLAUDE_DIR/projects/test-project/session1.jsonl"
-          echo '{"type":"summary","summary":"Session 2"}' > "$CLAUDE_DIR/projects/test-project/session2.jsonl"
-          output=$(ls "$CLAUDE_DIR/projects/test-project"/*.jsonl | bin/claude-sessions-extract --stream)
-          if echo "$output" | grep -q "HEADER"; then
-            echo "✓ stream mode outputs date headers"
-          else
-            echo "❌ stream mode missing date headers"
-            exit 1
-          fi
-
-      - name: Test export with invalid session
-        run: |
-          output=$(bin/claude-sessions-export nonexistent 2>&1) || true
-          echo "$output"
-          echo "✓ export handles invalid input"
-
-      - name: Test branch with invalid session
-        run: |
-          output=$(bin/claude-sessions-branch nonexistent 2>&1) || true
-          echo "$output" | grep -q "Session not found" && echo "✓ branch handles invalid input"
-
-      - name: Test branch creates copy
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          # Create a mock session file
-          echo '{"type":"summary","summary":"Test session"}' > "$CLAUDE_DIR/projects/test-project/test-session-id.jsonl"
-          echo '{"type":"user","message":"Hello"}' >> "$CLAUDE_DIR/projects/test-project/test-session-id.jsonl"
-          # Branch it
-          new_sid=$(bin/claude-sessions-branch test-session-id)
-          # Verify new session exists
-          if [ -f "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" ]; then
-            echo "✓ branch created new session file"
-          else
-            echo "❌ branch failed to create new session"
-            exit 1
-          fi
-          # Verify branch metadata was added
-          if head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" | grep -q '"parentSession":"test-session-id"'; then
-            echo "✓ branch metadata contains parent reference"
-          else
-            echo "❌ branch metadata missing parent reference"
-            exit 1
-          fi
-
-      - name: Test branch generates valid UUID
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          new_sid=$(bin/claude-sessions-branch original)
-          if [[ "$new_sid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-            echo "✓ valid UUID format: $new_sid"
-          else
-            echo "❌ invalid UUID: $new_sid"
-            exit 1
-          fi
-
-      - name: Test branch metadata has valid timestamp
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          new_sid=$(bin/claude-sessions-branch original)
-          timestamp=$(head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" | grep -o '"branchedAt":"[^"]*"' | sed 's/"branchedAt":"//;s/"$//')
-          if [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
-            echo "✓ valid ISO-8601 timestamp: $timestamp"
-          else
-            echo "❌ invalid timestamp: $timestamp"
-            exit 1
-          fi
-
-      - name: Test branch does not modify original
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          original_hash=$(md5 -q "$CLAUDE_DIR/projects/test-project/original.jsonl")
-          bin/claude-sessions-branch original > /dev/null
-          new_hash=$(md5 -q "$CLAUDE_DIR/projects/test-project/original.jsonl")
-          if [ "$original_hash" = "$new_hash" ]; then
-            echo "✓ original session unchanged"
-          else
-            echo "❌ original session was modified"
-            exit 1
-          fi
-
-      - name: Test branch updates cache with parent reference
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          new_sid=$(bin/claude-sessions-branch original)
-          cache_line=$(grep "^$new_sid" "$CLAUDE_DIR/sessions-cache.tsv")
-          col_count=$(echo "$cache_line" | awk -F'\t' '{print NF}')
-          parent_sid=$(echo "$cache_line" | cut -f6)
-          if [ "$col_count" -eq 6 ] && [ "$parent_sid" = "original" ]; then
-            echo "✓ cache updated with 6 columns and correct parent"
-          else
-            echo "❌ cache format incorrect: cols=$col_count, parent=$parent_sid"
-            exit 1
-          fi
-
-      - name: Test rebuild extracts parent_sid from branch
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Original"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          echo '{"type":"branch","parentSession":"original"}' > "$CLAUDE_DIR/projects/test-project/branch.jsonl"
-          echo '{"type":"summary","summary":"Branch"}' >> "$CLAUDE_DIR/projects/test-project/branch.jsonl"
-          bin/claude-sessions-rebuild > /dev/null
-          parent=$(grep "^branch" "$CLAUDE_DIR/sessions-cache.tsv" | cut -f6)
-          if [ "$parent" = "original" ]; then
-            echo "✓ rebuild extracted parent_sid correctly"
-          else
-            echo "❌ parent_sid not extracted: got '$parent'"
-            exit 1
-          fi
-
-      - name: Test rebuild groups branches under parent
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Original"}' > "$CLAUDE_DIR/projects/test-project/parent-id.jsonl"
-          sleep 1
-          echo '{"type":"branch","parentSession":"parent-id"}' > "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
-          echo '{"type":"summary","summary":"Child"}' >> "$CLAUDE_DIR/projects/test-project/child-id.jsonl"
-          output=$(bin/claude-sessions-rebuild)
-          if echo "$output" | grep -q "└─"; then
-            echo "✓ branch displayed with tree indicator"
-          else
-            echo "❌ branch indicator not found in output"
-            echo "$output"
-            exit 1
-          fi
-
-      - name: Test branching a branch
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Root"}' > "$CLAUDE_DIR/projects/test-project/root.jsonl"
-          child=$(bin/claude-sessions-branch root)
-          grandchild=$(bin/claude-sessions-branch "$child")
-          parent=$(head -1 "$CLAUDE_DIR/projects/test-project/${grandchild}.jsonl" | grep -o '"parentSession":"[^"]*"' | sed 's/"parentSession":"//;s/"$//')
-          if [ "$parent" = "$child" ]; then
-            echo "✓ grandchild correctly references child as parent"
-          else
-            echo "❌ wrong parent: expected $child, got $parent"
-            exit 1
-          fi
-
-      - name: Test orphaned branch displays correctly
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          # Create branch without parent existing
-          echo '{"type":"branch","parentSession":"deleted-parent"}' > "$CLAUDE_DIR/projects/test-project/orphan.jsonl"
-          echo '{"type":"summary","summary":"Orphaned branch"}' >> "$CLAUDE_DIR/projects/test-project/orphan.jsonl"
-          # Rebuild should not crash and should show the orphan
-          output=$(bin/claude-sessions-rebuild 2>&1) || true
-          if echo "$output" | grep -q "orphan"; then
-            echo "✓ orphaned branch displayed correctly"
-          else
-            echo "❌ orphaned branch not found in output"
-            echo "$output"
-            exit 1
-          fi
-
-      - name: Test branch content integrity
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          # Create multi-line session
-          echo '{"type":"summary","summary":"Test session"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          echo '{"type":"user","message":"Hello"}' >> "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          echo '{"type":"assistant","message":"Hi there"}' >> "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          original_lines=$(wc -l < "$CLAUDE_DIR/projects/test-project/original.jsonl")
-          # Branch it
-          new_sid=$(bin/claude-sessions-branch original)
-          branch_lines=$(wc -l < "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl")
-          # Branch should have exactly 1 more line (metadata)
-          expected=$((original_lines + 1))
-          if [ "$branch_lines" -eq "$expected" ]; then
-            echo "✓ branch has correct line count: $branch_lines (original: $original_lines + 1 metadata)"
-          else
-            echo "❌ wrong line count: expected $expected, got $branch_lines"
-            exit 1
-          fi
-          # Content after first line should match original
-          tail -n +2 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" > /tmp/branch_content
-          if diff -q "$CLAUDE_DIR/projects/test-project/original.jsonl" /tmp/branch_content > /dev/null; then
-            echo "✓ branch content matches original"
-          else
-            echo "❌ branch content differs from original"
-            exit 1
-          fi
-
-      - name: Test branch metadata is valid JSON
-        run: |
-          export CLAUDE_DIR=$(mktemp -d)
-          mkdir -p "$CLAUDE_DIR/projects/test-project"
-          echo '{"type":"summary","summary":"Test"}' > "$CLAUDE_DIR/projects/test-project/original.jsonl"
-          new_sid=$(bin/claude-sessions-branch original)
-          # Validate first line is valid JSON with jq
-          if head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl" | jq . > /dev/null 2>&1; then
-            echo "✓ branch metadata is valid JSON"
-          else
-            echo "❌ branch metadata is invalid JSON"
-            head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl"
-            exit 1
-          fi
-          # Verify required fields exist
-          meta=$(head -1 "$CLAUDE_DIR/projects/test-project/${new_sid}.jsonl")
-          if echo "$meta" | jq -e '.type == "branch" and .parentSession and .branchedAt' > /dev/null; then
-            echo "✓ branch metadata has all required fields"
-          else
-            echo "❌ branch metadata missing required fields"
-            echo "$meta" | jq .
-            exit 1
-          fi
+          brew install fish
+          fish -n scripts/test-pr && echo "scripts/test-pr OK"
 
       - name: Homebrew formula audit
         run: |
           brew audit --formula Formula/claude-sessions.rb || true
-          echo "✓ formula checked"
+          echo "formula checked"

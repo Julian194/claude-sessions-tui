@@ -230,20 +230,9 @@ func resumeSession(adapter adapters.Adapter, sid string, workDir string) error {
 }
 
 func branchSession(adapter adapters.Adapter, sid string, workDir string) error {
-	// For now, just call the bash script for branching
-	// TODO: Implement in Go
-	binDir := filepath.Dir(os.Args[0])
-	branchScript := filepath.Join(binDir, "claude-sessions-branch")
-
-	cmd := exec.Command(branchScript, sid)
-	output, err := cmd.Output()
+	newSID, err := adapter.BranchSession(sid)
 	if err != nil {
 		return fmt.Errorf("branch failed: %w", err)
-	}
-
-	newSID := strings.TrimSpace(string(output))
-	if newSID == "" {
-		return fmt.Errorf("branch returned empty session ID")
 	}
 
 	fmt.Printf("Branched session: %s\n", newSID)
