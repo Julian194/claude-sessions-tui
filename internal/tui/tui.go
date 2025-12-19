@@ -37,7 +37,7 @@ type Result struct {
 type Config struct {
 	Adapter  adapters.Adapter
 	CacheDir string
-	BinPath  string // Path to the sessions binary for subcommands
+	BinPath  string
 }
 
 // Run launches the fzf TUI and returns the user's selection
@@ -60,10 +60,16 @@ func Run(cfg Config) (*Result, error) {
 	header := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents"
 	mainOnlyHeader := "[MAIN ONLY] " + header
 	loadingHeader := "[Loading...] " + header
+	exportedHeader := "[Exported!] " + header
+	copiedHeader := "[Copied to clipboard!] " + header
 
 	previewCmd := fmt.Sprintf("%s preview {1}", cfg.BinPath)
 	rebuildCmd := fmt.Sprintf("%s rebuild", cfg.BinPath)
 	rebuildMainOnlyCmd := fmt.Sprintf("%s rebuild --main-only", cfg.BinPath)
+
+	resetCmd := fmt.Sprintf("%s reset-header %d '%s'", cfg.BinPath, port, header)
+	exportCmd := fmt.Sprintf("%s export {1} && %s &", cfg.BinPath, resetCmd)
+	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s &", cfg.BinPath, resetCmd)
 
 	toggleCmd := fmt.Sprintf(
 		`sh -c 'if [ "$FZF_PROMPT" = "> " ]; then printf "change-prompt(* )+reload(%s)+change-header(%s)"; else printf "change-prompt(> )+reload(%s)+change-header(%s)"; fi'`,
@@ -86,7 +92,9 @@ func Run(cfg Config) (*Result, error) {
 		fmt.Sprintf("--listen=localhost:%d", port),
 		fmt.Sprintf("--bind=ctrl-r:reload(%s)+change-header(%s)", rebuildCmd, header),
 		fmt.Sprintf("--bind=ctrl-s:transform:%s", toggleCmd),
-		"--expect=enter,ctrl-b,ctrl-o,ctrl-y",
+		fmt.Sprintf("--bind=ctrl-o:execute-silent(%s)+change-header(%s)", exportCmd, exportedHeader),
+		fmt.Sprintf("--bind=ctrl-y:execute-silent(%s)+change-header(%s)", copyMDCmd, copiedHeader),
+		"--expect=enter,ctrl-b",
 	}
 
 	cmd := exec.Command("fzf", args...)

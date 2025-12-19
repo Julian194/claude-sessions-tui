@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -245,5 +246,106 @@ func TestResumeCmd(t *testing.T) {
 	expected := "opencode --session ses_abc123"
 	if cmd != expected {
 		t.Errorf("ResumeCmd() = %q, want %q", cmd, expected)
+	}
+}
+
+func TestGetSlashCommands(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	cmds, err := a.GetSlashCommands("ses_abc123")
+	if err != nil {
+		t.Fatalf("GetSlashCommands() error = %v", err)
+	}
+
+	if len(cmds) != 1 {
+		t.Fatalf("GetSlashCommands() returned %d commands, want 1", len(cmds))
+	}
+	if cmds[0] != "/commit" {
+		t.Errorf("cmds[0] = %q, want %q", cmds[0], "/commit")
+	}
+}
+
+func TestGetSlashCommands_IgnoresAbsolutePaths(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	cmds, err := a.GetSlashCommands("ses_abc123")
+	if err != nil {
+		t.Fatalf("GetSlashCommands() error = %v", err)
+	}
+
+	for _, cmd := range cmds {
+		if cmd == "/Users" || cmd == "/Users/test/projects/my-app/src/auth.ts" {
+			t.Errorf("GetSlashCommands() should not return absolute paths, got %q", cmd)
+		}
+	}
+}
+
+func TestBranchSession(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	srcDir := testDataDir(t)
+	copyDir(t, srcDir, tmpDir)
+
+	a := New(tmpDir)
+
+	newID, err := a.BranchSession("ses_abc123")
+	if err != nil {
+		t.Fatalf("BranchSession() error = %v", err)
+	}
+
+	if newID == "" || newID == "ses_abc123" {
+		t.Errorf("BranchSession() returned invalid ID %q", newID)
+	}
+
+	newSessionPath := a.GetSessionFile(newID)
+	if newSessionPath == "" {
+		t.Fatal("BranchSession() did not create session file")
+	}
+
+	data, err := os.ReadFile(newSessionPath)
+	if err != nil {
+		t.Fatalf("Failed to read new session: %v", err)
+	}
+
+	var session map[string]interface{}
+	if err := json.Unmarshal(data, &session); err != nil {
+		t.Fatalf("Failed to parse new session: %v", err)
+	}
+
+	if session["parentID"] != "ses_abc123" {
+		t.Errorf("New session parentID = %q, want %q", session["parentID"], "ses_abc123")
+	}
+
+	msgDir := filepath.Join(tmpDir, "message", newID)
+	entries, err := os.ReadDir(msgDir)
+	if err != nil {
+		t.Fatalf("Failed to read message dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("BranchSession() did not copy any messages")
+	}
+}
+
+func copyDir(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, _ := filepath.Rel(src, path)
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, 0755)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, 0644)
+	})
+	if err != nil {
+		t.Fatalf("copyDir failed: %v", err)
 	}
 }

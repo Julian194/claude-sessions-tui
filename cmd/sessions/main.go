@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/adapters/claude"
@@ -62,6 +64,11 @@ func main() {
 			os.Exit(1)
 		}
 		err = runCopyMD(adapter, args[0])
+	case "reset-header":
+		if len(args) < 2 {
+			os.Exit(1)
+		}
+		runResetHeader(args[0], args[1])
 	case "help", "--help", "-h":
 		printUsage(binaryName, adapter)
 		os.Exit(0)
@@ -95,7 +102,6 @@ func getCacheDir(adapter adapters.Adapter) string {
 }
 
 func runTUI(adapter adapters.Adapter, cacheDir string) error {
-	// Get path to self for subcommands
 	binPath, err := os.Executable()
 	if err != nil {
 		binPath = os.Args[0]
@@ -121,10 +127,6 @@ func runTUI(adapter adapters.Adapter, cacheDir string) error {
 		return resumeSession(adapter, result.SessionID, result.WorkDir)
 	case tui.ActionBranch:
 		return branchSession(adapter, result.SessionID, result.WorkDir)
-	case tui.ActionExport:
-		return runExport(adapter, result.SessionID)
-	case tui.ActionCopyMD:
-		return runCopyMD(adapter, result.SessionID)
 	}
 
 	return nil
@@ -165,18 +167,51 @@ func runExport(adapter adapters.Adapter, sid string) error {
 	models, _ := adapter.GetModels(sid)
 	html := export.ToHTML(messages, info, models)
 
-	// Write to file
-	filename := fmt.Sprintf("session-%s.html", sid[:8])
+	// Write to /tmp for reliable access
+	shortID := sid
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	filename := fmt.Sprintf("/tmp/session-%s.html", shortID)
 	if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
 		return err
 	}
 
 	fmt.Printf("Exported to %s\n", filename)
 
-	// Try to open in browser
-	exec.Command("open", filename).Start()
+	// Open in browser (cross-platform)
+	switch {
+	case fileExists("/usr/bin/open"): // macOS
+		exec.Command("open", filename).Start()
+	case commandExists("xdg-open"): // Linux
+		exec.Command("xdg-open", filename).Start()
+	case commandExists("wslview"): // WSL
+		exec.Command("wslview", filename).Start()
+	}
 
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
+}
+
+func runResetHeader(port, header string) {
+	time.Sleep(1 * time.Second)
+	resp, err := http.Post(
+		fmt.Sprintf("http://localhost:%s", port),
+		"text/plain",
+		strings.NewReader(fmt.Sprintf("change-header(%s)", header)),
+	)
+	if err == nil {
+		resp.Body.Close()
+	}
 }
 
 func runCopyMD(adapter adapters.Adapter, sid string) error {

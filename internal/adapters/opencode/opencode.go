@@ -1,7 +1,10 @@
 package opencode
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -164,7 +167,41 @@ func (a *Adapter) GetFilesTouched(id string) ([]string, error) {
 }
 
 func (a *Adapter) GetSlashCommands(id string) ([]string, error) {
-	return nil, nil
+	parts, err := a.loadParts(id)
+	if err != nil {
+		return nil, err
+	}
+
+	cmdSet := make(map[string]bool)
+	for _, p := range parts {
+		if p.Type != "text" {
+			continue
+		}
+
+		text := strings.TrimSpace(p.Text)
+		if !strings.HasPrefix(text, "/") || len(text) < 2 {
+			continue
+		}
+
+		secondChar := text[1]
+		isLetter := (secondChar >= 'a' && secondChar <= 'z') || (secondChar >= 'A' && secondChar <= 'Z')
+		if !isLetter {
+			continue
+		}
+
+		cmd := text
+		if idx := strings.IndexAny(text, " \n\t"); idx > 0 {
+			cmd = text[:idx]
+		}
+		cmdSet[cmd] = true
+	}
+
+	cmds := make([]string, 0, len(cmdSet))
+	for cmd := range cmdSet {
+		cmds = append(cmds, cmd)
+	}
+	sort.Strings(cmds)
+	return cmds, nil
 }
 
 // GetModels returns unique model names used in the session
@@ -313,7 +350,131 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 }
 
 func (a *Adapter) BranchSession(id string) (string, error) {
-	return "", nil
+	sessionPath := a.GetSessionFile(id)
+	if sessionPath == "" {
+		return "", os.ErrNotExist
+	}
+
+	sessionBytes, err := os.ReadFile(sessionPath)
+	if err != nil {
+		return "", err
+	}
+
+	var session map[string]interface{}
+	if err := json.Unmarshal(sessionBytes, &session); err != nil {
+		return "", err
+	}
+
+	projectID, _ := session["projectID"].(string)
+	if projectID == "" {
+		return "", fmt.Errorf("session missing projectID")
+	}
+
+	now := time.Now().UnixMilli()
+	newSessionID := generateID("ses")
+	msgIDMap := make(map[string]string)
+
+	session["id"] = newSessionID
+	session["parentID"] = id
+	if timeObj, ok := session["time"].(map[string]interface{}); ok {
+		timeObj["created"] = now
+		timeObj["updated"] = now
+	}
+
+	newSessionPath := filepath.Join(a.dataDir, "session", projectID, newSessionID+".json")
+	if err := os.MkdirAll(filepath.Dir(newSessionPath), 0755); err != nil {
+		return "", err
+	}
+	newSessionBytes, _ := json.MarshalIndent(session, "", "  ")
+	if err := os.WriteFile(newSessionPath, newSessionBytes, 0644); err != nil {
+		return "", err
+	}
+
+	msgDir := filepath.Join(a.dataDir, "message", id)
+	entries, err := os.ReadDir(msgDir)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+
+	newMsgDir := filepath.Join(a.dataDir, "message", newSessionID)
+	if err := os.MkdirAll(newMsgDir, 0755); err != nil {
+		return "", err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		msgBytes, err := os.ReadFile(filepath.Join(msgDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		var msg map[string]interface{}
+		if err := json.Unmarshal(msgBytes, &msg); err != nil {
+			continue
+		}
+
+		oldMsgID, _ := msg["id"].(string)
+		newMsgID := generateID("msg")
+		msgIDMap[oldMsgID] = newMsgID
+
+		msg["id"] = newMsgID
+		msg["sessionID"] = newSessionID
+
+		newMsgBytes, _ := json.MarshalIndent(msg, "", "  ")
+		if err := os.WriteFile(filepath.Join(newMsgDir, newMsgID+".json"), newMsgBytes, 0644); err != nil {
+			return "", err
+		}
+	}
+
+	for oldMsgID, newMsgID := range msgIDMap {
+		partDir := filepath.Join(a.dataDir, "part", oldMsgID)
+		partEntries, err := os.ReadDir(partDir)
+		if err != nil {
+			continue
+		}
+
+		newPartDir := filepath.Join(a.dataDir, "part", newMsgID)
+		if err := os.MkdirAll(newPartDir, 0755); err != nil {
+			continue
+		}
+
+		for _, pEntry := range partEntries {
+			if pEntry.IsDir() || !strings.HasSuffix(pEntry.Name(), ".json") {
+				continue
+			}
+
+			partBytes, err := os.ReadFile(filepath.Join(partDir, pEntry.Name()))
+			if err != nil {
+				continue
+			}
+
+			var part map[string]interface{}
+			if err := json.Unmarshal(partBytes, &part); err != nil {
+				continue
+			}
+
+			newPartID := generateID("prt")
+			part["id"] = newPartID
+			part["sessionID"] = newSessionID
+			part["messageID"] = newMsgID
+
+			newPartBytes, _ := json.MarshalIndent(part, "", "  ")
+			if err := os.WriteFile(filepath.Join(newPartDir, newPartID+".json"), newPartBytes, 0644); err != nil {
+				continue
+			}
+		}
+	}
+
+	return newSessionID, nil
+}
+
+func generateID(prefix string) string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b))
 }
 
 type sessionData struct {
