@@ -1,30 +1,63 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-cd "$(dirname "$0")/.."
+root_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root_dir"
 
-# Get current version from formula
-current=$(grep 'version "' Formula/claude-sessions.rb | sed 's/.*version "//;s/".*//')
-echo "Current version: $current"
+# Determine last released tag (expects SemVer tags like v0.2.5)
+last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 
-# Parse version parts
-IFS='.' read -r major minor patch <<< "$current"
+if [[ -n "$last_tag" && ! "$last_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Warning: latest tag '$last_tag' is not vX.Y.Z" >&2
+fi
 
-# Bump patch by default, or accept argument
-case "${1:-patch}" in
-  major) major=$((major + 1)); minor=0; patch=0 ;;
-  minor) minor=$((minor + 1)); patch=0 ;;
-  patch) patch=$((patch + 1)) ;;
-  *) echo "Usage: release [major|minor|patch]"; exit 1 ;;
-esac
+current="${last_tag#v}"
+echo "Last tag: ${last_tag:-<none>}"
+echo "Current version: ${current:-<none>}"
 
-new="$major.$minor.$patch"
+# Determine new version.
+# - Pass a bump type: major|minor|patch
+# - Or pass an explicit version: 0.3.0 (or v0.3.0)
+arg="${1:-patch}"
+
+if [[ "$arg" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  new="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+else
+  if [[ -z "$current" ]]; then
+    echo "No existing semver tag found; pass an explicit version (e.g. 0.3.0)." >&2
+    exit 1
+  fi
+
+  IFS='.' read -r major minor patch <<< "$current"
+  case "$arg" in
+    major) major=$((major + 1)); minor=0; patch=0 ;;
+    minor) minor=$((minor + 1)); patch=0 ;;
+    patch) patch=$((patch + 1)) ;;
+    *)
+      echo "Usage: release [major|minor|patch|<version>]" >&2
+      exit 1
+      ;;
+  esac
+
+  new="$major.$minor.$patch"
+fi
+
 echo "New version: $new"
 echo ""
 
-# Get commits since last tag and categorize
-echo "Changes since v$current:"
-commits=$(git log "v$current"..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s" -10)
+range="HEAD"
+if [[ -n "$last_tag" ]]; then
+  range="$last_tag..HEAD"
+fi
+
+# Get commits since last tag
+commit_count="$(git rev-list --count "$range" 2>/dev/null || echo 0)"
+non_merge_count="$(git rev-list --count --no-merges "$range" 2>/dev/null || echo 0)"
+
+echo "Changes since ${last_tag:-initial commit}:"
+echo "  commits: $commit_count (non-merge: $non_merge_count)"
+
+commits="$(git log "$range" --pretty=format:"%s")"
 echo "$commits"
 echo ""
 
@@ -35,21 +68,44 @@ fixed=""
 removed=""
 
 while IFS= read -r commit; do
+  [[ -z "$commit" ]] && continue
+
   # Skip merge commits and release commits
   case "$commit" in
     Merge*|merge*|release:*) continue ;;
   esac
 
-  # Strip prefix and clean up
-  msg=$(echo "$commit" | sed 's/^[a-z]*: //' | sed 's/^[a-z]*(//' | sed 's/):/: /')
+  type=""
+  scope=""
+  body="$commit"
 
-  case "$commit" in
-    feat:*|feat\(*) added="$added\n- $msg" ;;
-    fix:*|fix\(*)   fixed="$fixed\n- $msg" ;;
-    remove:*|removed:*) removed="$removed\n- $msg" ;;
-    refactor:*|docs:*|chore:*|test:*|ci:*) ;; # skip non-user-facing commits
-    *)              changed="$changed\n- $msg" ;;
+  # Parse conventional commits like:
+  #   feat: message
+  #   feat(scope): message
+  if [[ "$commit" == *": "* ]]; then
+    prefix="${commit%%:*}"
+    body="${commit#*: }"
+
+    if [[ "$prefix" == *"("* && "$prefix" == *")"* ]]; then
+      type="${prefix%%(*}"
+      scope="${prefix#*(}"
+      scope="${scope%)*}"
+    else
+      type="$prefix"
+    fi
+  fi
+
+  msg="$body"
+  [[ -n "$scope" ]] && msg="$scope: $body"
+
+  case "$type" in
+    feat) added="$added"$'\n'"- $msg" ;;
+    fix) fixed="$fixed"$'\n'"- $msg" ;;
+    remove|removed) removed="$removed"$'\n'"- $msg" ;;
+    refactor|docs|chore|test|ci) ;; # skip non-user-facing commits
+    *) changed="$changed"$'\n'"- $msg" ;;
   esac
+
 done <<< "$commits"
 
 # Create temp file for changelog entry
@@ -59,15 +115,19 @@ today=$(date +%Y-%m-%d)
 {
   echo "## [$new] - $today"
   echo ""
-  [ -n "$added" ] && echo "### Added" && echo -e "$added" && echo ""
-  [ -n "$changed" ] && echo "### Changed" && echo -e "$changed" && echo ""
-  [ -n "$fixed" ] && echo "### Fixed" && echo -e "$fixed" && echo ""
-  [ -n "$removed" ] && echo "### Removed" && echo -e "$removed" && echo ""
+  [[ -n "$added" ]] && echo "### Added" && echo "$added" && echo ""
+  [[ -n "$changed" ]] && echo "### Changed" && echo "$changed" && echo ""
+  [[ -n "$fixed" ]] && echo "### Fixed" && echo "$fixed" && echo ""
+  [[ -n "$removed" ]] && echo "### Removed" && echo "$removed" && echo ""
 } > "$tmpfile"
 
 # Open editor for user to refine
-echo "Opening editor to refine changelog..."
-${EDITOR:-vim} "$tmpfile"
+if [[ -t 0 && -t 1 ]]; then
+  echo "Opening editor to refine changelog..."
+  ${EDITOR:-vim} "$tmpfile"
+else
+  echo "Non-interactive terminal detected; skipping editor." >&2
+fi
 
 # Show what will be added
 echo ""
@@ -80,9 +140,9 @@ read -p "Release v$new with this changelog? [y/N] " -n 1 -r
 echo
 [[ ! $REPLY =~ ^[Yy]$ ]] && rm "$tmpfile" && exit 0
 
-# Update formula
-sed -i '' "s/tag: \"v$current\"/tag: \"v$new\"/" Formula/claude-sessions.rb
-sed -i '' "s/version \"$current\"/version \"$new\"/" Formula/claude-sessions.rb
+# Update formula (replace any existing semver tag/version)
+sed -i '' -E "s/tag: \"v[0-9]+\.[0-9]+\.[0-9]+\"/tag: \"v$new\"/" Formula/claude-sessions.rb
+sed -i '' -E "s/version \"[0-9]+\.[0-9]+\.[0-9]+\"/version \"$new\"/" Formula/claude-sessions.rb
 
 # Update changelog - insert after line 7 (after the header)
 changelog_entry=$(cat "$tmpfile")

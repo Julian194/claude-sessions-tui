@@ -1,17 +1,17 @@
 class ClaudeSessions < Formula
-  desc 'TUI for browsing, searching, and exporting Claude Code sessions'
-  homepage 'https://github.com/Julian194/claude-sessions-tui'
-  url 'https://github.com/Julian194/claude-sessions-tui.git', tag: 'v2.0.0'
-  version '2.0.0'
-  license 'MIT'
-  head 'https://github.com/Julian194/claude-sessions-tui.git', branch: 'main'
+  desc "TUI for browsing, searching, and exporting Claude Code sessions"
+  homepage "https://github.com/Julian194/claude-sessions-tui"
+  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v0.2.6"
+  version "0.2.6"
+  license "MIT"
+  head "https://github.com/Julian194/claude-sessions-tui.git", branch: "main"
 
-  depends_on 'go' => :build
-  depends_on 'fzf'
+  depends_on "go" => :build
+  depends_on "fzf"
 
   def install
-    system 'go', 'build', *std_go_args(ldflags: '-s -w'), '-o', bin / 'claude-sessions', './cmd/sessions'
-    bin.install_symlink 'claude-sessions' => 'opencode-sessions'
+    system "go", "build", *std_go_args(ldflags: "-s -w"), "-o", bin / "claude-sessions", "./cmd/sessions"
+    bin.install_symlink "claude-sessions" => "opencode-sessions"
   end
 
   def caveats
@@ -36,6 +36,6 @@ class ClaudeSessions < Formula
   end
 
   test do
-    assert_match 'Usage:', shell_output("#{bin}/claude-sessions help")
+    assert_match "Usage:", shell_output("#{bin}/claude-sessions help")
   end
 end

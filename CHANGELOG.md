@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.6] - 2025-12-19
+
+### Added
+
+- opencode: implement GetSlashCommands and BranchSession
+- add model info to preview and exports
+- add subagent/branch toggle and visual indicators
+- add OpenCode sessions adapter
+- implement TUI/CLI entry point (Phase 2.6-2.8)
+- add Go core packages with tests (Phase 1)
+
+### Changed
+
+- improve TUI borders and add dev workflow docs
+- implement incremental cache rebuild
+
+### Fixed
+
+- ci: lower coverage threshold to 60%
+- ci: resolve test failures and coverage errors
+- branch display showing under wrong parent in fzf
+- add --no-sort to fzf to preserve branch grouping
+- show formatted data immediately, skip rebuild if cache fresh
+- restore branch display in TUI
+
 ## [0.2.5] - 2025-12-18
 
 ### Added
