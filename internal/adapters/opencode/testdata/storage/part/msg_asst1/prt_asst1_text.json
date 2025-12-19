@@ -1,0 +1,7 @@
+{
+  "id": "prt_asst1_text",
+  "sessionID": "ses_abc123",
+  "messageID": "msg_asst1",
+  "type": "text",
+  "text": "I'll help you refactor the authentication module. Let me first look at the current implementation."
+}

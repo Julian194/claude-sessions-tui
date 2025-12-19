@@ -1,0 +1,16 @@
+{
+  "id": "ses_abc123",
+  "version": "1.0.61",
+  "projectID": "proj_test123",
+  "directory": "/Users/test/projects/my-app",
+  "title": "Refactoring authentication module",
+  "time": {
+    "created": 1734500100000,
+    "updated": 1734500500000
+  },
+  "summary": {
+    "additions": 10,
+    "deletions": 5,
+    "files": 2
+  }
+}

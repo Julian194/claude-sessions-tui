@@ -1,26 +1,29 @@
 class ClaudeSessions < Formula
-  desc "TUI for browsing, searching, and exporting Claude Code sessions"
-  homepage "https://github.com/Julian194/claude-sessions-tui"
-  url "https://github.com/Julian194/claude-sessions-tui.git", tag: "v2.0.0"
-  version "2.0.0"
-  license "MIT"
-  head "https://github.com/Julian194/claude-sessions-tui.git", branch: "main"
+  desc 'TUI for browsing, searching, and exporting Claude Code sessions'
+  homepage 'https://github.com/Julian194/claude-sessions-tui'
+  url 'https://github.com/Julian194/claude-sessions-tui.git', tag: 'v2.0.0'
+  version '2.0.0'
+  license 'MIT'
+  head 'https://github.com/Julian194/claude-sessions-tui.git', branch: 'main'
 
-  depends_on "go" => :build
-  depends_on "fzf"
+  depends_on 'go' => :build
+  depends_on 'fzf'
 
   def install
-    system "go", "build", *std_go_args(ldflags: "-s -w"), "-o", bin/"claude-sessions", "./cmd/sessions"
+    system 'go', 'build', *std_go_args(ldflags: '-s -w'), '-o', bin / 'claude-sessions', './cmd/sessions'
+    bin.install_symlink 'claude-sessions' => 'opencode-sessions'
   end
 
   def caveats
     <<~EOS
-      claude-sessions requires Claude Code to be installed and have existing sessions.
-      Sessions are stored in ~/.claude/projects/
+      This package provides session browsers for AI coding assistants:
+        claude-sessions   - Browse Claude Code sessions (~/.claude/projects/)
+        opencode-sessions - Browse OpenCode sessions (~/.local/share/opencode/storage/)
 
       Usage:
-        claude-sessions          # Launch the TUI browser
-        claude-sessions rebuild  # Manually rebuild the session cache
+        claude-sessions          # Launch Claude TUI browser
+        opencode-sessions        # Launch OpenCode TUI browser
+        <cmd> rebuild            # Manually rebuild the session cache
 
       Keyboard shortcuts in the TUI:
         Enter   - Resume selected session
@@ -33,6 +36,6 @@ class ClaudeSessions < Formula
   end
 
   test do
-    assert_match "Usage:", shell_output("#{bin}/claude-sessions help")
+    assert_match 'Usage:', shell_output("#{bin}/claude-sessions help")
   end
 end

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/adapters/claude"
+	"github.com/Julian194/claude-sessions-tui/internal/adapters/opencode"
 	"github.com/Julian194/claude-sessions-tui/internal/export"
 	"github.com/Julian194/claude-sessions-tui/internal/stats"
 	"github.com/Julian194/claude-sessions-tui/internal/tui"
@@ -76,17 +77,15 @@ func main() {
 }
 
 func getAdapter(binaryName string) adapters.Adapter {
-	// Strip path and common prefixes/suffixes
 	name := strings.TrimSuffix(binaryName, "-sessions")
 	name = strings.TrimPrefix(name, "sessions-")
 
 	switch name {
 	case "claude", "claude-sessions":
 		return claude.New("")
-	// Future: case "opencode", "opencode-sessions":
-	//     return opencode.New("")
+	case "opencode", "opencode-sessions":
+		return opencode.New("")
 	default:
-		// Default to claude
 		return claude.New("")
 	}
 }
@@ -211,15 +210,15 @@ func resumeSession(adapter adapters.Adapter, sid string, workDir string) error {
 	resumeCmd := adapter.ResumeCmd(sid)
 	parts := strings.Fields(resumeCmd)
 
-	// Add --dangerously-skip-permissions flag
-	parts = append(parts, "--dangerously-skip-permissions")
+	if adapter.Name() == "claude" {
+		parts = append(parts, "--dangerously-skip-permissions")
+	}
 
 	cmd := exec.Command(parts[0], parts[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// Change to workdir if valid
 	if workDir != "" {
 		if _, err := os.Stat(workDir); err == nil {
 			cmd.Dir = workDir
