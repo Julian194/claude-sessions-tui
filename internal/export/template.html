@@ -112,6 +112,7 @@
       <div class="meta">
         <span class="meta-item"><span class="meta-icon">◉</span> {{.Date}}</span>
         {{if .Branch}}<span class="meta-item"><span class="meta-icon">⎇</span> {{.Branch}}</span>{{end}}
+        {{if .Models}}<span class="meta-item"><span class="meta-icon">🤖</span> {{.Models}}</span>{{end}}
         <span class="meta-item"><span class="meta-icon">#</span> {{.SessionID}}</span>
         <span class="meta-item"><span class="meta-icon">◇</span> {{.MsgCount}} msgs</span>
         <span class="meta-item"><span class="meta-icon">⚙</span> {{.ToolCount}} tools</span>

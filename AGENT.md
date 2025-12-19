@@ -58,6 +58,12 @@ The same binary serves both adapters - the binary name determines which adapter 
 - `claude-sessions` or `claude` → Claude Code adapter
 - `opencode-sessions` or `opencode` → OpenCode adapter
 
+## Feature Implementation Rule
+
+**When adding new features, ALWAYS check feasibility for ALL supported adapters and implement for all unless explicitly told otherwise.**
+
+Both adapters (Claude Code and OpenCode) should have feature parity where possible. Check data availability in both before implementing.
+
 ## Open TODOs
 
 ### OpenCode Adapter

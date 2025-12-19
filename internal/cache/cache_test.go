@@ -32,6 +32,7 @@ func (m *mockAdapter) GetSessionInfo(id string) (*adapters.SessionInfo, error) {
 func (m *mockAdapter) GetSummaries(id string) ([]string, error)                { return nil, nil }
 func (m *mockAdapter) GetFilesTouched(id string) ([]string, error)             { return nil, nil }
 func (m *mockAdapter) GetSlashCommands(id string) ([]string, error)            { return nil, nil }
+func (m *mockAdapter) GetModels(id string) ([]string, error)                   { return nil, nil }
 func (m *mockAdapter) GetStats(id string) (*adapters.Stats, error)             { return nil, nil }
 func (m *mockAdapter) GetFirstMessage(id string) (string, error)               { return "", nil }
 func (m *mockAdapter) ExportMessages(id string) ([]adapters.Message, error)    { return nil, nil }

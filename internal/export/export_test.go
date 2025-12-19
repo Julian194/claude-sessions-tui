@@ -44,7 +44,7 @@ func TestToHTML_Basic(t *testing.T) {
 	messages := sampleMessages()
 	info := sampleInfo()
 
-	html := ToHTML(messages, info)
+	html := ToHTML(messages, info, nil)
 
 	if !strings.Contains(html, "<!DOCTYPE html>") {
 		t.Error("HTML should start with DOCTYPE")
@@ -61,7 +61,7 @@ func TestToHTML_ContainsSessionInfo(t *testing.T) {
 	messages := sampleMessages()
 	info := sampleInfo()
 
-	html := ToHTML(messages, info)
+	html := ToHTML(messages, info, nil)
 
 	if !strings.Contains(html, "my-project") {
 		t.Error("HTML should contain project name")
@@ -78,7 +78,7 @@ func TestToHTML_ContainsMessages(t *testing.T) {
 	messages := sampleMessages()
 	info := sampleInfo()
 
-	html := ToHTML(messages, info)
+	html := ToHTML(messages, info, nil)
 
 	if !strings.Contains(html, "Help me with authentication") {
 		t.Error("HTML should contain user message")
@@ -91,7 +91,7 @@ func TestToHTML_ContainsMessages(t *testing.T) {
 func TestToHTML_ContainsToolCalls(t *testing.T) {
 	messages := sampleMessages()
 
-	html := ToHTML(messages, nil)
+	html := ToHTML(messages, nil, nil)
 
 	if !strings.Contains(html, "Read") {
 		t.Error("HTML should contain tool name")
@@ -104,7 +104,7 @@ func TestToHTML_ContainsToolCalls(t *testing.T) {
 func TestToHTML_NilInfo(t *testing.T) {
 	messages := sampleMessages()
 
-	html := ToHTML(messages, nil)
+	html := ToHTML(messages, nil, nil)
 
 	if html == "" {
 		t.Error("ToHTML should return non-empty string even with nil info")
@@ -118,7 +118,7 @@ func TestToMarkdown_Basic(t *testing.T) {
 	messages := sampleMessages()
 	info := sampleInfo()
 
-	md := ToMarkdown(messages, info)
+	md := ToMarkdown(messages, info, nil)
 
 	if !strings.Contains(md, "# my-project") {
 		t.Error("Markdown should contain project header")
@@ -131,7 +131,7 @@ func TestToMarkdown_Basic(t *testing.T) {
 func TestToMarkdown_ContainsMessages(t *testing.T) {
 	messages := sampleMessages()
 
-	md := ToMarkdown(messages, nil)
+	md := ToMarkdown(messages, nil, nil)
 
 	if !strings.Contains(md, "## 👤 User") {
 		t.Error("Markdown should contain user header")
@@ -147,7 +147,7 @@ func TestToMarkdown_ContainsMessages(t *testing.T) {
 func TestToMarkdown_ContainsToolCalls(t *testing.T) {
 	messages := sampleMessages()
 
-	md := ToMarkdown(messages, nil)
+	md := ToMarkdown(messages, nil, nil)
 
 	if !strings.Contains(md, "**Tool: Read**") {
 		t.Error("Markdown should contain tool name")
@@ -160,7 +160,7 @@ func TestToMarkdown_ContainsToolCalls(t *testing.T) {
 func TestToMarkdown_NilInfo(t *testing.T) {
 	messages := sampleMessages()
 
-	md := ToMarkdown(messages, nil)
+	md := ToMarkdown(messages, nil, nil)
 
 	if md == "" {
 		t.Error("ToMarkdown should return non-empty string even with nil info")
@@ -228,9 +228,9 @@ func TestConvertMessage_SkipsCaveat(t *testing.T) {
 
 func TestFormatToolCall(t *testing.T) {
 	tests := []struct {
-		name  string
-		tc    adapters.ToolCall
-		want  string
+		name string
+		tc   adapters.ToolCall
+		want string
 	}{
 		{
 			name: "file_path tool",

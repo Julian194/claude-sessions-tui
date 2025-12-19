@@ -167,6 +167,28 @@ func (a *Adapter) GetSlashCommands(id string) ([]string, error) {
 	return nil, nil
 }
 
+// GetModels returns unique model names used in the session
+func (a *Adapter) GetModels(id string) ([]string, error) {
+	messages, err := a.loadMessages(id)
+	if err != nil {
+		return nil, err
+	}
+
+	modelSet := make(map[string]bool)
+	for _, msg := range messages {
+		if msg.Role == "assistant" && msg.ModelID != "" {
+			modelSet[msg.ModelID] = true
+		}
+	}
+
+	models := make([]string, 0, len(modelSet))
+	for m := range modelSet {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
 func (a *Adapter) GetStats(id string) (*adapters.Stats, error) {
 	messages, err := a.loadMessages(id)
 	if err != nil {

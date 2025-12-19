@@ -162,7 +162,8 @@ func runExport(adapter adapters.Adapter, sid string) error {
 		return err
 	}
 
-	html := export.ToHTML(messages, info)
+	models, _ := adapter.GetModels(sid)
+	html := export.ToHTML(messages, info, models)
 
 	// Write to file
 	filename := fmt.Sprintf("session-%s.html", sid[:8])
@@ -185,7 +186,8 @@ func runCopyMD(adapter adapters.Adapter, sid string) error {
 	}
 
 	info, _ := adapter.GetSessionInfo(sid)
-	md := export.ToMarkdown(messages, info)
+	models, _ := adapter.GetModels(sid)
+	md := export.ToMarkdown(messages, info, models)
 
 	// Copy to clipboard using pbcopy (macOS)
 	cmd := exec.Command("pbcopy")

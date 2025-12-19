@@ -20,6 +20,7 @@ type TemplateData struct {
 	Title        string
 	Date         string
 	Branch       string
+	Models       string
 	SessionID    string
 	MsgCount     int
 	ToolCount    int
@@ -35,7 +36,7 @@ type jsMessage struct {
 }
 
 // ToHTML converts messages to HTML format with full styling
-func ToHTML(messages []adapters.Message, info *adapters.SessionInfo) string {
+func ToHTML(messages []adapters.Message, info *adapters.SessionInfo, models []string) string {
 	// Prepare template data
 	data := TemplateData{
 		Title:     "Session Export",
@@ -55,6 +56,10 @@ func ToHTML(messages []adapters.Message, info *adapters.SessionInfo) string {
 		} else {
 			data.SessionID = info.ID
 		}
+	}
+
+	if len(models) > 0 {
+		data.Models = strings.Join(models, ", ")
 	}
 
 	// Convert messages to JS format
@@ -160,7 +165,7 @@ func formatToolCall(tc adapters.ToolCall) string {
 }
 
 // ToMarkdown converts messages to Markdown format
-func ToMarkdown(messages []adapters.Message, info *adapters.SessionInfo) string {
+func ToMarkdown(messages []adapters.Message, info *adapters.SessionInfo, models []string) string {
 	var sb strings.Builder
 
 	if info != nil {
@@ -171,6 +176,9 @@ func ToMarkdown(messages []adapters.Message, info *adapters.SessionInfo) string 
 		}
 		if info.Branch != "" {
 			sb.WriteString(fmt.Sprintf("**Branch:** %s\n", info.Branch))
+		}
+		if len(models) > 0 {
+			sb.WriteString(fmt.Sprintf("**Models:** %s\n", strings.Join(models, ", ")))
 		}
 		sb.WriteString("\n---\n\n")
 	}

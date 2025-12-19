@@ -22,6 +22,7 @@ type Adapter interface {
 	GetSummaries(id string) ([]string, error)
 	GetFilesTouched(id string) ([]string, error)
 	GetSlashCommands(id string) ([]string, error)
+	GetModels(id string) ([]string, error)
 	GetStats(id string) (*Stats, error)
 	GetFirstMessage(id string) (string, error)
 

@@ -319,6 +319,33 @@ func (a *Adapter) GetSlashCommands(id string) ([]string, error) {
 	return cmds, nil
 }
 
+// GetModels returns unique model names used in the session
+func (a *Adapter) GetModels(id string) ([]string, error) {
+	path := a.GetSessionFile(id)
+	if path == "" {
+		return nil, os.ErrNotExist
+	}
+
+	records, err := a.parseFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	modelSet := make(map[string]bool)
+	for _, r := range records {
+		if r.Type == "assistant" && r.Message.Model != "" {
+			modelSet[r.Message.Model] = true
+		}
+	}
+
+	models := make([]string, 0, len(modelSet))
+	for m := range modelSet {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
 // GetStats returns session statistics
 func (a *Adapter) GetStats(id string) (*adapters.Stats, error) {
 	path := a.GetSessionFile(id)
@@ -473,6 +500,7 @@ type record struct {
 type message struct {
 	Role    string      `json:"role"`
 	Content interface{} `json:"content"`
+	Model   string      `json:"model,omitempty"`
 	Usage   *usage      `json:"usage,omitempty"`
 }
 

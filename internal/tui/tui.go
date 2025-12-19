@@ -315,6 +315,10 @@ func Preview(adapter adapters.Adapter, sid string) error {
 	if info.Branch != "" {
 		fmt.Printf("🌿 %s\n", info.Branch)
 	}
+	models, _ := adapter.GetModels(sid)
+	if len(models) > 0 {
+		fmt.Printf("🤖 %s\n", strings.Join(models, ", "))
+	}
 	fmt.Println()
 
 	// Summaries
