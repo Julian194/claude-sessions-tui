@@ -5,7 +5,37 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 )
+
+// mockAdapter implements adapters.Adapter for testing
+type mockAdapter struct {
+	sessions    []string
+	sessionFile map[string]string
+	metas       map[string]*adapters.SessionMeta
+}
+
+func (m *mockAdapter) Name() string                    { return "mock" }
+func (m *mockAdapter) DataDir() string                 { return "/mock/data" }
+func (m *mockAdapter) CacheDir() string                { return "/mock/cache" }
+func (m *mockAdapter) ResumeCmd(id string) string      { return "mock resume " + id }
+func (m *mockAdapter) ListSessions() ([]string, error) { return m.sessions, nil }
+func (m *mockAdapter) GetSessionFile(id string) string { return m.sessionFile[id] }
+func (m *mockAdapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
+	if meta, ok := m.metas[id]; ok {
+		return meta, nil
+	}
+	return nil, os.ErrNotExist
+}
+func (m *mockAdapter) GetSessionInfo(id string) (*adapters.SessionInfo, error) { return nil, nil }
+func (m *mockAdapter) GetSummaries(id string) ([]string, error)                { return nil, nil }
+func (m *mockAdapter) GetFilesTouched(id string) ([]string, error)             { return nil, nil }
+func (m *mockAdapter) GetSlashCommands(id string) ([]string, error)            { return nil, nil }
+func (m *mockAdapter) GetStats(id string) (*adapters.Stats, error)             { return nil, nil }
+func (m *mockAdapter) GetFirstMessage(id string) (string, error)               { return "", nil }
+func (m *mockAdapter) ExportMessages(id string) ([]adapters.Message, error)    { return nil, nil }
+func (m *mockAdapter) BranchSession(id string) (string, error)                 { return "", nil }
 
 func TestWriteAndRead(t *testing.T) {
 	// Create temp directory
@@ -227,6 +257,136 @@ func TestEscapeTSV(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("escapeTSV(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestBuildFrom(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sessionFile := filepath.Join(tmpDir, "session1.jsonl")
+	os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+
+	mock := &mockAdapter{
+		sessions:    []string{"session1", "session2"},
+		sessionFile: map[string]string{"session1": sessionFile},
+		metas: map[string]*adapters.SessionMeta{
+			"session1": {
+				ID:      "session1",
+				Date:    time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+				Project: "test-project",
+				Summary: "Test session",
+			},
+		},
+	}
+
+	entries, err := BuildFrom(mock)
+	if err != nil {
+		t.Fatalf("BuildFrom() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("BuildFrom() returned %d entries, want 1", len(entries))
+	}
+
+	if entries[0].SessionID != "session1" {
+		t.Errorf("SessionID = %q, want %q", entries[0].SessionID, "session1")
+	}
+	if entries[0].Project != "test-project" {
+		t.Errorf("Project = %q, want %q", entries[0].Project, "test-project")
+	}
+}
+
+func TestBuildIncremental(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache.tsv")
+
+	sessionFile := filepath.Join(tmpDir, "session1.jsonl")
+	os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+
+	session2File := filepath.Join(tmpDir, "session2.jsonl")
+	os.WriteFile(session2File, []byte(`{"type":"test2"}`), 0644)
+
+	mock := &mockAdapter{
+		sessions:    []string{"session1", "session2"},
+		sessionFile: map[string]string{"session1": sessionFile, "session2": session2File},
+		metas: map[string]*adapters.SessionMeta{
+			"session1": {
+				ID:      "session1",
+				Date:    time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+				Project: "project1",
+				Summary: "Session 1",
+			},
+			"session2": {
+				ID:      "session2",
+				Date:    time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
+				Project: "project2",
+				Summary: "Session 2",
+			},
+		},
+	}
+
+	existing := []Entry{
+		{
+			SessionID: "session1",
+			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+			Project:   "project1",
+			Summary:   "Cached session 1",
+		},
+	}
+
+	c := New(cachePath)
+	c.Write(existing)
+
+	time.Sleep(10 * time.Millisecond)
+	os.Chtimes(session2File, time.Now(), time.Now())
+
+	entries, err := BuildIncremental(mock, cachePath, existing)
+	if err != nil {
+		t.Fatalf("BuildIncremental() error = %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("BuildIncremental() returned %d entries, want 2", len(entries))
+	}
+}
+
+func TestCacheBuildFrom(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache.tsv")
+
+	sessionFile := filepath.Join(tmpDir, "session1.jsonl")
+	os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+
+	mock := &mockAdapter{
+		sessions:    []string{"session1"},
+		sessionFile: map[string]string{"session1": sessionFile},
+		metas: map[string]*adapters.SessionMeta{
+			"session1": {
+				ID:      "session1",
+				Date:    time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+				Project: "test-project",
+				Summary: "Test session",
+			},
+		},
+	}
+
+	c := New(cachePath)
+	err := c.BuildFrom(mock)
+	if err != nil {
+		t.Fatalf("Cache.BuildFrom() error = %v", err)
+	}
+
+	if !c.Exists() {
+		t.Error("Cache file should exist after BuildFrom")
+	}
+
+	entries, err := c.Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Read() returned %d entries, want 1", len(entries))
 	}
 }
 

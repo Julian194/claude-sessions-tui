@@ -276,3 +276,73 @@ func TestTruncate(t *testing.T) {
 		}
 	}
 }
+
+func TestBranchSession(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	projectDir := filepath.Join(tmpDir, "projects", "test-project")
+	os.MkdirAll(projectDir, 0755)
+
+	originalContent := `{"type":"init","cwd":"/test"}
+{"type":"user","message":"Hello"}
+{"type":"assistant","message":"Hi there"}
+`
+	originalPath := filepath.Join(projectDir, "original-session.jsonl")
+	os.WriteFile(originalPath, []byte(originalContent), 0644)
+
+	a := New(tmpDir)
+	newID, err := a.BranchSession("original-session")
+	if err != nil {
+		t.Fatalf("BranchSession() error = %v", err)
+	}
+
+	if newID == "" {
+		t.Fatal("BranchSession() returned empty ID")
+	}
+	if newID == "original-session" {
+		t.Error("BranchSession() returned same ID as original")
+	}
+
+	newPath := filepath.Join(projectDir, newID+".jsonl")
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		t.Error("BranchSession() did not create new file")
+	}
+
+	content, _ := os.ReadFile(newPath)
+	if len(content) == 0 {
+		t.Error("BranchSession() created empty file")
+	}
+
+	contentStr := string(content)
+	if !filepath.IsAbs("/test") {
+		t.Skip()
+	}
+	if len(contentStr) <= len(originalContent) {
+		t.Error("BranchSession() should add branch metadata")
+	}
+}
+
+func TestBranchSession_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := New(tmpDir)
+
+	_, err := a.BranchSession("nonexistent")
+	if err == nil {
+		t.Error("BranchSession() should error for nonexistent session")
+	}
+}
+
+func TestGenerateUUID(t *testing.T) {
+	id1 := generateUUID()
+	id2 := generateUUID()
+
+	if id1 == "" {
+		t.Error("generateUUID() returned empty string")
+	}
+	if id1 == id2 {
+		t.Error("generateUUID() returned same ID twice")
+	}
+	if len(id1) != 36 {
+		t.Errorf("generateUUID() length = %d, want 36", len(id1))
+	}
+}
