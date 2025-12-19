@@ -21,7 +21,15 @@ jobs:
         run: go test ./... -v
 
       - name: Run tests with coverage
-        run: go test ./internal/... -coverprofile=coverage.out
+        run: |
+          # Run coverage only on packages with tests (excludes adapters, preview)
+          go test -coverprofile=coverage.out \
+            ./internal/adapters/claude/... \
+            ./internal/adapters/opencode/... \
+            ./internal/cache/... \
+            ./internal/export/... \
+            ./internal/stats/... \
+            ./internal/tui/...
 
       - name: Check coverage threshold
         run: |

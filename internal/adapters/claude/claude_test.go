@@ -247,7 +247,7 @@ func TestExtractProject(t *testing.T) {
 		want string
 	}{
 		{"/home/user/.claude/projects/-Users-julian-code-myapp/session.jsonl", "code/myapp"},
-		{"/home/user/.claude/projects/simple-project/session.jsonl", "simple/project"},
+		{"/home/user/.claude/projects/simple-project/session.jsonl", "simple-project"},
 	}
 
 	for _, tt := range tests {

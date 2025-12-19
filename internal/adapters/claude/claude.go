@@ -512,12 +512,15 @@ func extractProject(path string) string {
 	dir := filepath.Dir(path)
 	project := filepath.Base(dir)
 
-	// Clean up project name (remove user path prefix)
+	// Claude encodes full paths as project names: -Users-julian-code-foo
+	// Convert back to readable format: code/foo
 	re := regexp.MustCompile(`^-Users-[^-]+-`)
-	project = re.ReplaceAllString(project, "")
-
-	// Replace remaining dashes with more readable format
-	project = strings.ReplaceAll(project, "-", "/")
+	if re.MatchString(project) {
+		// This is a path-encoded project name, convert dashes to slashes
+		project = re.ReplaceAllString(project, "")
+		project = strings.ReplaceAll(project, "-", "/")
+	}
+	// Otherwise keep original name (e.g., "my-project" stays as-is)
 
 	return project
 }
