@@ -78,17 +78,10 @@ func main() {
 }
 
 func getAdapter(binaryName string) adapters.Adapter {
-	name := strings.TrimSuffix(binaryName, "-sessions")
-	name = strings.TrimPrefix(name, "sessions-")
-
-	switch name {
-	case "claude", "claude-sessions":
-		return claude.New("")
-	case "opencode", "opencode-sessions":
+	if strings.Contains(binaryName, "opencode") {
 		return opencode.New("")
-	default:
-		return claude.New("")
 	}
+	return claude.New("")
 }
 
 func getCacheDir(adapter adapters.Adapter) string {

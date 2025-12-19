@@ -140,6 +140,46 @@ internal/
   tui/               # fzf integration
 ```
 
+## Development
+
+### Building from source
+
+```bash
+go test ./internal/...
+go build -o claude-sessions ./cmd/sessions
+```
+
+### Installing dev binaries
+
+Install to `~/.local/bin/` with a `-dev` suffix to keep them separate from production (Homebrew) installs:
+
+```bash
+cp claude-sessions ~/.local/bin/claude-sessions-dev
+cp claude-sessions ~/.local/bin/opencode-sessions-dev
+```
+
+### Shell aliases
+
+Add these to your shell config (e.g., `~/.config/fish/config.fish` or `~/.zshrc`):
+
+```bash
+# Production (Homebrew)
+alias cs='/opt/homebrew/bin/claude-sessions'
+
+# Dev (local builds)
+alias csd='~/.local/bin/claude-sessions-dev'
+alias osd='~/.local/bin/opencode-sessions-dev'
+```
+
+### Binary naming
+
+The same binary serves both Claude Code and OpenCode - the adapter is selected based on the binary name:
+
+| Binary name contains | Adapter |
+|---------------------|---------|
+| `opencode` | OpenCode |
+| anything else | Claude Code |
+
 ## License
 
 MIT

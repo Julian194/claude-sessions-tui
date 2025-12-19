@@ -76,9 +76,12 @@ func Run(cfg Config) (*Result, error) {
 		"--with-nth=2,3,4",
 		"--ansi",
 		"--no-sort",
+		"--no-separator",
+		"--no-scrollbar",
 		"--prompt=> ",
+		"--border=rounded",
 		fmt.Sprintf("--preview=%s", previewCmd),
-		"--preview-window=right:50%:wrap",
+		"--preview-window=right:50%:wrap:border-left",
 		fmt.Sprintf("--header=%s", loadingHeader),
 		fmt.Sprintf("--listen=localhost:%d", port),
 		fmt.Sprintf("--bind=ctrl-r:reload(%s)+change-header(%s)", rebuildCmd, header),
@@ -246,7 +249,7 @@ func formatForDisplay(entries []cache.Entry) []string {
 		if entryDate != currentDate {
 			if currentDate != "" {
 				formatted := formatDateHeader(currentDate)
-				header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t-\t-\t0\t-\t-",
+				header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t\t\t0\t-\t-",
 					cyan, formatted, nc)
 				result = append(result, header)
 			}
@@ -282,7 +285,7 @@ func formatForDisplay(entries []cache.Entry) []string {
 
 	if currentDate != "" {
 		formatted := formatDateHeader(currentDate)
-		header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t-\t-\t0\t-\t-",
+		header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t\t\t0\t-\t-",
 			cyan, formatted, nc)
 		result = append(result, header)
 	}
