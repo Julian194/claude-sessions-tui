@@ -1,0 +1,7 @@
+{
+  "id": "prt_user2_cmd",
+  "sessionID": "ses_abc123",
+  "messageID": "msg_user2",
+  "type": "text",
+  "text": "/commit fix auth bug"
+}

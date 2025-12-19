@@ -23,21 +23,20 @@ A terminal UI for browsing, searching, and exporting [Claude Code](https://claud
 brew install julian194/tap/claude-sessions
 ```
 
-### Manual installation
+### From source
+
+Requires Go 1.21+:
 
 ```bash
 git clone https://github.com/Julian194/claude-sessions-tui.git
 cd claude-sessions-tui
-chmod +x bin/*
-
-# Add to PATH (add to your .bashrc, .zshrc, or config.fish)
-export PATH="$PATH:$(pwd)/bin"
+go build -o claude-sessions ./cmd/sessions
+sudo mv claude-sessions /usr/local/bin/
 ```
 
 ### Dependencies
 
-- [fzf](https://github.com/junegunn/fzf) - fuzzy finder
-- Python 3 (for statistics)
+- [fzf](https://github.com/junegunn/fzf) - fuzzy finder (required)
 - [Claude Code](https://claude.ai/code) - the AI coding assistant
 
 ## Usage
@@ -61,27 +60,29 @@ claude-sessions
 | Type | Filter sessions |
 | `Esc` | Exit |
 
-### Individual commands
+### Subcommands
 
 ```bash
+# Launch the TUI (default)
+claude-sessions
+
 # Rebuild the session cache manually
-claude-sessions-rebuild
+claude-sessions rebuild
 
 # View statistics for a specific session
-claude-sessions-stats <session-id>
-claude-sessions-stats <session-id> --full
+claude-sessions stats <session-id>
 
 # Export a session to HTML
-claude-sessions-export <session-id>
+claude-sessions export <session-id>
 
 # Copy session as Markdown to clipboard
-claude-sessions-copy-md <session-id>
-
-# Branch a session (create a copy)
-claude-sessions-branch <session-id>
+claude-sessions copy-md <session-id>
 
 # Preview a session (used internally by fzf)
-claude-sessions-preview <session-id>
+claude-sessions preview <session-id>
+
+# Show help
+claude-sessions help
 ```
 
 ## Preview pane
@@ -104,10 +105,14 @@ The exported HTML includes:
 
 ## Configuration
 
-Set `CLAUDE_DIR` environment variable to use a custom Claude Code directory:
+### Environment variables
 
 ```bash
-export CLAUDE_DIR="$HOME/.claude"  # default
+# Override Claude data directory
+export CLAUDE_DIR="$HOME/.claude"
+
+# Override cache directory
+export SESSIONS_CACHE_DIR="$HOME/.cache/sessions-tui"
 ```
 
 ## How it works
@@ -116,9 +121,64 @@ Claude Code stores sessions as JSONL files in `~/.claude/projects/`. Each projec
 
 The TUI:
 1. Scans all session files and extracts metadata
-2. Caches results for fast subsequent launches (auto-refreshes after 1 hour)
+2. Caches results for fast subsequent launches
 3. Uses fzf for interactive filtering
 4. Can resume sessions or export them
+
+## Architecture
+
+Built in Go with a provider/adapter architecture to support multiple AI coding assistants:
+
+```
+cmd/sessions/        # CLI entry point
+internal/
+  adapters/          # Provider implementations
+    claude/          # Claude Code adapter
+  cache/             # Session cache management
+  export/            # HTML/Markdown export
+  stats/             # Token counting and cost calculation
+  tui/               # fzf integration
+```
+
+## Development
+
+### Building from source
+
+```bash
+go test ./internal/...
+go build -o claude-sessions ./cmd/sessions
+```
+
+### Installing dev binaries
+
+Install to `~/.local/bin/` with a `-dev` suffix to keep them separate from production (Homebrew) installs:
+
+```bash
+cp claude-sessions ~/.local/bin/claude-sessions-dev
+cp claude-sessions ~/.local/bin/opencode-sessions-dev
+```
+
+### Shell aliases
+
+Add these to your shell config (e.g., `~/.config/fish/config.fish` or `~/.zshrc`):
+
+```bash
+# Production (Homebrew)
+alias cs='/opt/homebrew/bin/claude-sessions'
+
+# Dev (local builds)
+alias csd='~/.local/bin/claude-sessions-dev'
+alias osd='~/.local/bin/opencode-sessions-dev'
+```
+
+### Binary naming
+
+The same binary serves both Claude Code and OpenCode - the adapter is selected based on the binary name:
+
+| Binary name contains | Adapter |
+|---------------------|---------|
+| `opencode` | OpenCode |
+| anything else | Claude Code |
 
 ## License
 

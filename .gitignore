@@ -2,3 +2,7 @@
 *.swp
 *.swo
 *~
+
+# Built binary
+sessions
+claude-sessions

@@ -1,0 +1,9 @@
+{
+  "id": "proj_test123",
+  "worktree": "/Users/test/projects/my-app",
+  "vcsDir": "/Users/test/projects/my-app/.git",
+  "vcs": "git",
+  "time": {
+    "created": 1734500000000
+  }
+}

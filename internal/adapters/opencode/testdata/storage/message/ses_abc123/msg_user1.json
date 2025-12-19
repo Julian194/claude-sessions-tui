@@ -1,0 +1,13 @@
+{
+  "id": "msg_user1",
+  "sessionID": "ses_abc123",
+  "role": "user",
+  "time": {
+    "created": 1734500100000
+  },
+  "summary": {
+    "title": "Help with authentication",
+    "body": "Help me refactor the authentication module",
+    "diffs": []
+  }
+}

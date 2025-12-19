@@ -1,0 +1,13 @@
+{
+  "id": "msg_user2",
+  "sessionID": "ses_abc123",
+  "role": "user",
+  "time": {
+    "created": 1734500200000
+  },
+  "summary": {
+    "title": "Approval",
+    "body": "Great, thanks!",
+    "diffs": []
+  }
+}

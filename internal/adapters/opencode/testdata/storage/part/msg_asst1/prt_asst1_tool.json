@@ -1,0 +1,25 @@
+{
+  "id": "prt_asst1_tool",
+  "sessionID": "ses_abc123",
+  "messageID": "msg_asst1",
+  "type": "tool",
+  "callID": "toolu_001",
+  "tool": "edit",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/Users/test/projects/my-app/src/auth.ts",
+      "oldString": "// TODO: implement",
+      "newString": "return validateCredentials(user, pass);"
+    },
+    "output": "File edited successfully",
+    "title": "src/auth.ts",
+    "metadata": {
+      "diff": "- // TODO: implement\n+ return validateCredentials(user, pass);"
+    }
+  },
+  "time": {
+    "start": 1734500112000,
+    "end": 1734500113000
+  }
+}
