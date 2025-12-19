@@ -38,12 +38,20 @@ func TestListSessions(t *testing.T) {
 		t.Fatalf("ListSessions() error = %v", err)
 	}
 
-	if len(sessions) != 1 {
-		t.Errorf("ListSessions() returned %d sessions, want 1", len(sessions))
+	if len(sessions) != 2 {
+		t.Errorf("ListSessions() returned %d sessions, want 2", len(sessions))
 	}
 
-	if sessions[0] != "ses_abc123" {
-		t.Errorf("ListSessions()[0] = %q, want %q", sessions[0], "ses_abc123")
+	// Sessions are sorted by mtime, so subagent should be first (newer)
+	found := make(map[string]bool)
+	for _, s := range sessions {
+		found[s] = true
+	}
+	if !found["ses_abc123"] {
+		t.Error("ListSessions() missing ses_abc123")
+	}
+	if !found["ses_subagent456"] {
+		t.Error("ListSessions() missing ses_subagent456")
 	}
 }
 
@@ -75,6 +83,28 @@ func TestExtractMeta(t *testing.T) {
 	}
 	if meta.Project != "my-app" {
 		t.Errorf("Project = %q, want %q", meta.Project, "my-app")
+	}
+	if meta.ParentSID != "" {
+		t.Errorf("ParentSID = %q, want empty for main session", meta.ParentSID)
+	}
+}
+
+func TestExtractMeta_Subagent(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	meta, err := a.ExtractMeta("ses_subagent456")
+	if err != nil {
+		t.Fatalf("ExtractMeta() error = %v", err)
+	}
+
+	if meta.ID != "ses_subagent456" {
+		t.Errorf("ID = %q, want %q", meta.ID, "ses_subagent456")
+	}
+	if meta.Summary != "Background: Explore: Finding auth patterns" {
+		t.Errorf("Summary = %q, want %q", meta.Summary, "Background: Explore: Finding auth patterns")
+	}
+	if meta.ParentSID != "ses_abc123" {
+		t.Errorf("ParentSID = %q, want %q", meta.ParentSID, "ses_abc123")
 	}
 }
 

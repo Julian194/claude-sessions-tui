@@ -104,10 +104,11 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	project := extractProject(session.Directory)
 
 	return &adapters.SessionMeta{
-		ID:      id,
-		Date:    time.UnixMilli(session.Time.Updated),
-		Project: project,
-		Summary: session.Title,
+		ID:        id,
+		Date:      time.UnixMilli(session.Time.Updated),
+		Project:   project,
+		Summary:   session.Title,
+		ParentSID: session.ParentID,
 	}, nil
 }
 
@@ -297,6 +298,7 @@ type sessionData struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"projectID"`
 	Directory string `json:"directory"`
+	ParentID  string `json:"parentID,omitempty"`
 	Title     string `json:"title"`
 	Time      struct {
 		Created int64 `json:"created"`

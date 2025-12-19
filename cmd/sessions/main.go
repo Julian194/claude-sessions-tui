@@ -36,7 +36,8 @@ func main() {
 	case "", "tui":
 		err = runTUI(adapter, cacheDir)
 	case "rebuild":
-		err = runRebuild(adapter, cacheDir)
+		mainOnly := len(args) > 0 && args[0] == "--main-only"
+		err = runRebuild(adapter, cacheDir, mainOnly)
 	case "preview":
 		if len(args) < 1 {
 			fmt.Fprintln(os.Stderr, "Usage: sessions preview <session-id>")
@@ -136,12 +137,12 @@ func runTUI(adapter adapters.Adapter, cacheDir string) error {
 	return nil
 }
 
-func runRebuild(adapter adapters.Adapter, cacheDir string) error {
+func runRebuild(adapter adapters.Adapter, cacheDir string, mainOnly bool) error {
 	cfg := tui.Config{
 		Adapter:  adapter,
 		CacheDir: cacheDir,
 	}
-	return tui.Rebuild(cfg)
+	return tui.Rebuild(cfg, mainOnly)
 }
 
 func runPreview(adapter adapters.Adapter, sid string) error {

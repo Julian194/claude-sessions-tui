@@ -24,8 +24,12 @@ type Adapter struct {
 // New creates a new Claude adapter
 func New(dataDir string) *Adapter {
 	if dataDir == "" {
-		home, _ := os.UserHomeDir()
-		dataDir = filepath.Join(home, ".claude", "projects")
+		if envDir := os.Getenv("CLAUDE_DIR"); envDir != "" {
+			dataDir = filepath.Join(envDir, "projects")
+		} else {
+			home, _ := os.UserHomeDir()
+			dataDir = filepath.Join(home, ".claude", "projects")
+		}
 	}
 	return &Adapter{
 		dataDir:  dataDir,

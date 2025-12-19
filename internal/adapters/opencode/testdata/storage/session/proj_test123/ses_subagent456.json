@@ -1,0 +1,17 @@
+{
+  "id": "ses_subagent456",
+  "version": "1.0.61",
+  "projectID": "proj_test123",
+  "parentID": "ses_abc123",
+  "directory": "/Users/test/projects/my-app",
+  "title": "Background: Explore: Finding auth patterns",
+  "time": {
+    "created": 1734500200000,
+    "updated": 1734500600000
+  },
+  "summary": {
+    "additions": 0,
+    "deletions": 0,
+    "files": 0
+  }
+}

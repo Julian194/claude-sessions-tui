@@ -57,23 +57,32 @@ func Run(cfg Config) (*Result, error) {
 	rand.Seed(time.Now().UnixNano())
 	port := 10000 + rand.Intn(50000)
 
-	header := "enter=resume | ctrl-o=export | ctrl-y=copy-md | ctrl-b=branch | ctrl-r=refresh"
+	header := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents"
+	mainOnlyHeader := "[MAIN ONLY] " + header
 	loadingHeader := "[Loading...] " + header
 
-	// Build fzf command
 	previewCmd := fmt.Sprintf("%s preview {1}", cfg.BinPath)
 	rebuildCmd := fmt.Sprintf("%s rebuild", cfg.BinPath)
+	rebuildMainOnlyCmd := fmt.Sprintf("%s rebuild --main-only", cfg.BinPath)
+
+	toggleCmd := fmt.Sprintf(
+		`sh -c 'if [ "$FZF_PROMPT" = "> " ]; then printf "change-prompt(* )+reload(%s)+change-header(%s)"; else printf "change-prompt(> )+reload(%s)+change-header(%s)"; fi'`,
+		rebuildMainOnlyCmd, mainOnlyHeader,
+		rebuildCmd, header,
+	)
 
 	args := []string{
 		"--delimiter=\t",
 		"--with-nth=2,3,4",
 		"--ansi",
 		"--no-sort",
+		"--prompt=> ",
 		fmt.Sprintf("--preview=%s", previewCmd),
 		"--preview-window=right:50%:wrap",
 		fmt.Sprintf("--header=%s", loadingHeader),
 		fmt.Sprintf("--listen=localhost:%d", port),
 		fmt.Sprintf("--bind=ctrl-r:reload(%s)+change-header(%s)", rebuildCmd, header),
+		fmt.Sprintf("--bind=ctrl-s:transform:%s", toggleCmd),
 		"--expect=enter,ctrl-b,ctrl-o,ctrl-y",
 	}
 
@@ -187,7 +196,7 @@ func parseResult(output []byte, adapter adapters.Adapter) (*Result, error) {
 }
 
 // Rebuild rebuilds the cache and outputs formatted data for fzf reload
-func Rebuild(cfg Config) error {
+func Rebuild(cfg Config, mainOnly bool) error {
 	cacheFile := filepath.Join(cfg.CacheDir, "sessions-cache.tsv")
 
 	entries, err := cache.BuildFrom(cfg.Adapter)
@@ -199,6 +208,16 @@ func Rebuild(cfg Config) error {
 		return err
 	}
 
+	if mainOnly {
+		var filtered []cache.Entry
+		for _, e := range entries {
+			if e.ParentSID == "" || e.ParentSID == "-" {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
 	// Output formatted entries for fzf display
 	formatted := formatForDisplay(entries)
 	for _, line := range formatted {
@@ -208,101 +227,64 @@ func Rebuild(cfg Config) error {
 	return nil
 }
 
-// formatForDisplay formats cache entries with date headers and branch grouping
+// formatForDisplay formats cache entries with date headers and child indicators
 func formatForDisplay(entries []cache.Entry) []string {
 	if len(entries) == 0 {
 		return nil
 	}
 
-	// ANSI colors
 	cyan := "\033[0;36m"
-	yellow := "\033[0;33m"
+	dim := "\033[2m"
 	nc := "\033[0m"
-
-	// Separate roots and branches
-	var roots, branches []cache.Entry
-	for _, e := range entries {
-		if e.ParentSID == "" || e.ParentSID == "-" {
-			roots = append(roots, e)
-		} else {
-			branches = append(branches, e)
-		}
-	}
-
-	// Build parent ID set
-	rootIDs := make(map[string]bool)
-	for _, r := range roots {
-		rootIDs[r.SessionID] = true
-	}
 
 	var result []string
 	currentDate := ""
 
-	for _, root := range roots {
-		// Check if we need a new date header
-		rootDate := root.Date.Format("2006-01-02")
-		if rootDate != currentDate {
-			// Output date header (after the sessions that belong to it)
+	for _, e := range entries {
+		entryDate := e.Date.Format("2006-01-02")
+
+		if entryDate != currentDate {
 			if currentDate != "" {
 				formatted := formatDateHeader(currentDate)
 				header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t-\t-\t0\t-\t-",
 					cyan, formatted, nc)
 				result = append(result, header)
 			}
-			currentDate = rootDate
+			currentDate = entryDate
 		}
 
-		// Output branches BEFORE root (fzf reverses display order, so branches appear below parent)
-		for _, b := range branches {
-			if b.ParentSID == root.SessionID && b.Project == root.Project {
-				branchLine := fmt.Sprintf("%s\t%s  └─ %s%s\t%s\t%s\t%d\t%s\t%s",
-					b.SessionID,
-					yellow, b.Date.Format("15:04"), nc,
-					b.Project,
-					b.Summary,
-					b.Date.Unix(),
-					b.ParentSID,
-					b.Date.Format("2006-01-02"),
-				)
-				result = append(result, branchLine)
-			}
-		}
+		isChild := e.ParentSID != "" && e.ParentSID != "-"
 
-		// Output root session
-		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s",
-			root.SessionID,
-			root.Date.Format("15:04"),
-			root.Project,
-			root.Summary,
-			root.Date.Unix(),
-			root.ParentSID,
-			rootDate,
-		)
+		var line string
+		if isChild {
+			line = fmt.Sprintf("%s\t%s↳ %s%s\t%s\t%s\t%d\t%s\t%s",
+				e.SessionID,
+				dim, e.Date.Format("15:04"), nc,
+				e.Project,
+				e.Summary,
+				e.Date.Unix(),
+				e.ParentSID,
+				entryDate,
+			)
+		} else {
+			line = fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s",
+				e.SessionID,
+				e.Date.Format("15:04"),
+				e.Project,
+				e.Summary,
+				e.Date.Unix(),
+				e.ParentSID,
+				entryDate,
+			)
+		}
 		result = append(result, line)
 	}
 
-	// Final date header
 	if currentDate != "" {
 		formatted := formatDateHeader(currentDate)
 		header := fmt.Sprintf("---HEADER---\t%s%s ─────────────────────────%s\t-\t-\t0\t-\t-",
 			cyan, formatted, nc)
 		result = append(result, header)
-	}
-
-	// Output orphaned branches
-	for _, b := range branches {
-		if !rootIDs[b.ParentSID] {
-			branchLine := fmt.Sprintf("%s\t%s  └─ %s%s\t%s\t%s\t%d\t%s\t%s",
-				b.SessionID,
-				yellow, b.Date.Format("15:04"), nc,
-				b.Project,
-				b.Summary,
-				b.Date.Unix(),
-				b.ParentSID,
-				b.Date.Format("2006-01-02"),
-			)
-			result = append(result, branchLine)
-		}
 	}
 
 	return result
