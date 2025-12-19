@@ -252,21 +252,9 @@ func formatForDisplay(entries []cache.Entry) []string {
 			currentDate = rootDate
 		}
 
-		// Output root session
-		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s",
-			root.SessionID,
-			root.Date.Format("15:04"),
-			root.Project,
-			root.Summary,
-			root.Date.Unix(),
-			root.ParentSID,
-			rootDate,
-		)
-		result = append(result, line)
-
-		// Output branches for this root
+		// Output branches BEFORE root (fzf reverses display order, so branches appear below parent)
 		for _, b := range branches {
-			if b.ParentSID == root.SessionID {
+			if b.ParentSID == root.SessionID && b.Project == root.Project {
 				branchLine := fmt.Sprintf("%s\t%s  └─ %s%s\t%s\t%s\t%d\t%s\t%s",
 					b.SessionID,
 					yellow, b.Date.Format("15:04"), nc,
@@ -279,6 +267,18 @@ func formatForDisplay(entries []cache.Entry) []string {
 				result = append(result, branchLine)
 			}
 		}
+
+		// Output root session
+		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s",
+			root.SessionID,
+			root.Date.Format("15:04"),
+			root.Project,
+			root.Summary,
+			root.Date.Unix(),
+			root.ParentSID,
+			rootDate,
+		)
+		result = append(result, line)
 	}
 
 	// Final date header
