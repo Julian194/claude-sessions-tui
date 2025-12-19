@@ -64,8 +64,3 @@ The same binary serves both adapters - the binary name determines which adapter 
 
 Both adapters (Claude Code and OpenCode) should have feature parity where possible. Check data availability in both before implementing.
 
-## Open TODOs
-
-### OpenCode Adapter
-- [ ] `BranchSession()` - currently returns empty string (stub)
-- [ ] `GetSlashCommands()` - currently returns nil (stub)
