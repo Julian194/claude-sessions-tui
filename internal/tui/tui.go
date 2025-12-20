@@ -60,7 +60,7 @@ func Run(cfg Config) (*Result, error) {
 	rand.Seed(time.Now().UnixNano())
 	port := 10000 + rand.Intn(50000)
 
-	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents"
+	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents  ctrl-a=activity"
 	sessionCount := len(entries)
 	header := fmt.Sprintf("[%d sessions] %s", sessionCount, keybinds)
 	loadingHeader := fmt.Sprintf("[Loading...] %s", keybinds)
@@ -68,6 +68,12 @@ func Run(cfg Config) (*Result, error) {
 	copiedHeader := fmt.Sprintf("[Copied to clipboard!] %s", keybinds)
 
 	previewCmd := fmt.Sprintf("%s preview {1}", cfg.BinPath)
+	activityCmd := fmt.Sprintf("%s activity-preview", cfg.BinPath)
+
+	activityToggle := fmt.Sprintf(
+		`sh -c 'if [ "$FZF_PREVIEW_LABEL" = " Activity " ]; then printf "change-preview(%s)+change-preview-label()"; else printf "change-preview(%s)+change-preview-label( Activity )"; fi'`,
+		previewCmd, activityCmd,
+	)
 	rebuildCmd := fmt.Sprintf("%s rebuild", cfg.BinPath)
 	rebuildMainOnlyCmd := fmt.Sprintf("%s rebuild --main-only", cfg.BinPath)
 
@@ -108,6 +114,7 @@ func Run(cfg Config) (*Result, error) {
 		fmt.Sprintf("--bind=ctrl-s:transform:%s", toggleCmd),
 		fmt.Sprintf("--bind=ctrl-o:execute-silent(%s)+change-header(%s)", exportCmd, exportedHeader),
 		fmt.Sprintf("--bind=ctrl-y:execute-silent(%s)+change-header(%s)", copyMDCmd, copiedHeader),
+		fmt.Sprintf("--bind=ctrl-a:transform:%s", activityToggle),
 		"--expect=enter,ctrl-b",
 	}
 
