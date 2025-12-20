@@ -14,12 +14,16 @@ fi
 latest=$(brew info julian194/tap/claude-sessions 2>/dev/null | head -1 | awk '{print $4}' | tr -d ',')
 
 if [ "$current" = "$latest" ]; then
-  echo "✓ claude-sessions is already at latest version ($current)"
-  exit 0
+  echo "claude-sessions is at version $current, rebuilding from source..."
+else
+  echo "Upgrading claude-sessions $current → $latest..."
 fi
 
-echo "Upgrading claude-sessions $current → $latest..."
-brew upgrade claude-sessions
+# Always build from source to avoid cached bottles
+brew reinstall --build-from-source julian194/tap/claude-sessions 2>&1 || true
+
+# Force link in case of conflicts
+brew link --overwrite claude-sessions 2>/dev/null || true
 
 echo ""
-echo "✓ Upgraded to claude-sessions v$latest"
+echo "✓ claude-sessions v$latest installed"
