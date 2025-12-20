@@ -12,7 +12,9 @@ import (
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/adapters/claude"
 	"github.com/Julian194/claude-sessions-tui/internal/adapters/opencode"
+	"github.com/Julian194/claude-sessions-tui/internal/cache"
 	"github.com/Julian194/claude-sessions-tui/internal/export"
+	"github.com/Julian194/claude-sessions-tui/internal/heatmap"
 	"github.com/Julian194/claude-sessions-tui/internal/stats"
 	"github.com/Julian194/claude-sessions-tui/internal/tui"
 )
@@ -64,6 +66,10 @@ func main() {
 			os.Exit(1)
 		}
 		err = runCopyMD(adapter, args[0])
+	case "activity":
+		err = runActivity(adapter, cacheDir)
+	case "activity-preview":
+		err = runActivityPreview(adapter, cacheDir)
 	case "reset-header":
 		if len(args) < 2 {
 			os.Exit(1)
@@ -150,6 +156,37 @@ func runStats(adapter adapters.Adapter, sid string) error {
 		return err
 	}
 	fmt.Print(stats.Format(s))
+	return nil
+}
+
+func runActivity(adapter adapters.Adapter, cacheDir string) error {
+	cacheFile := filepath.Join(cacheDir, "sessions-cache.tsv")
+
+	entries, err := cache.Read(cacheFile)
+	if err != nil {
+		entries, err = cache.BuildFrom(adapter)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println(heatmap.RenderFromCache(entries, 0))
+	return nil
+}
+
+func runActivityPreview(adapter adapters.Adapter, cacheDir string) error {
+	cacheFile := filepath.Join(cacheDir, "sessions-cache.tsv")
+
+	entries, err := cache.Read(cacheFile)
+	if err != nil {
+		entries, err = cache.BuildFrom(adapter)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("\n📊 Activity Heatmap")
+	fmt.Println(heatmap.RenderFromCache(entries, 0))
 	return nil
 }
 
