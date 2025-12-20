@@ -60,7 +60,7 @@ func Run(cfg Config) (*Result, error) {
 	rand.Seed(time.Now().UnixNano())
 	port := 10000 + rand.Intn(50000)
 
-	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents  ctrl-a=activity"
+	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-a=activity"
 	sessionCount := len(entries)
 	header := fmt.Sprintf("[%d sessions] %s", sessionCount, keybinds)
 	loadingHeader := fmt.Sprintf("[Loading...] %s", keybinds)
@@ -75,26 +75,15 @@ func Run(cfg Config) (*Result, error) {
 		previewCmd, activityCmd,
 	)
 	rebuildCmd := fmt.Sprintf("%s rebuild", cfg.BinPath)
-	rebuildMainOnlyCmd := fmt.Sprintf("%s rebuild --main-only", cfg.BinPath)
 
 	rebuildWithCount := fmt.Sprintf(
 		`sh -c '%s > /tmp/fzf_rebuild_$$ && count=$(grep -cv "^---HEADER---" /tmp/fzf_rebuild_$$); cat /tmp/fzf_rebuild_$$; rm -f /tmp/fzf_rebuild_$$; curl -s "http://localhost:%d" -d "change-header([${count} sessions] %s)"'`,
 		rebuildCmd, port, keybinds,
 	)
-	rebuildMainOnlyWithCount := fmt.Sprintf(
-		`sh -c '%s > /tmp/fzf_rebuild_$$ && count=$(grep -cv "^---HEADER---" /tmp/fzf_rebuild_$$); cat /tmp/fzf_rebuild_$$; rm -f /tmp/fzf_rebuild_$$; curl -s "http://localhost:%d" -d "change-header([${count} main sessions] %s)"'`,
-		rebuildMainOnlyCmd, port, keybinds,
-	)
 
 	resetCmd := fmt.Sprintf("%s reset-header %d '%s'", cfg.BinPath, port, header)
 	exportCmd := fmt.Sprintf("%s export {1} && %s &", cfg.BinPath, resetCmd)
 	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s &", cfg.BinPath, resetCmd)
-
-	toggleCmd := fmt.Sprintf(
-		`sh -c 'if [ "$FZF_PROMPT" = "> " ]; then printf "change-prompt(* )+reload(%s)"; else printf "change-prompt(> )+reload(%s)"; fi'`,
-		rebuildMainOnlyWithCount,
-		rebuildWithCount,
-	)
 
 	args := []string{
 		"--delimiter=\t",
@@ -111,7 +100,6 @@ func Run(cfg Config) (*Result, error) {
 		fmt.Sprintf("--header=%s", loadingHeader),
 		fmt.Sprintf("--listen=localhost:%d", port),
 		fmt.Sprintf("--bind=ctrl-r:reload(%s)", rebuildWithCount),
-		fmt.Sprintf("--bind=ctrl-s:transform:%s", toggleCmd),
 		fmt.Sprintf("--bind=ctrl-o:execute-silent(%s)+change-header(%s)", exportCmd, exportedHeader),
 		fmt.Sprintf("--bind=ctrl-y:execute-silent(%s)+change-header(%s)", copyMDCmd, copiedHeader),
 		fmt.Sprintf("--bind=ctrl-a:transform:%s", activityToggle),
