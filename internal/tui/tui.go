@@ -53,15 +53,19 @@ func Run(cfg Config) (*Result, error) {
 		f.Close()
 	}
 
+	// Read cache early to get session count for header
+	entries, _ := cache.Read(cacheFile)
+
 	// Generate random port for fzf listen
 	rand.Seed(time.Now().UnixNano())
 	port := 10000 + rand.Intn(50000)
 
-	header := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents  ctrl-a=activity"
-	mainOnlyHeader := "[MAIN ONLY] " + header
-	loadingHeader := "[Loading...] " + header
-	exportedHeader := "[Exported!] " + header
-	copiedHeader := "[Copied to clipboard!] " + header
+	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-s=toggle-subagents  ctrl-a=activity"
+	sessionCount := len(entries)
+	header := fmt.Sprintf("[%d sessions] %s", sessionCount, keybinds)
+	loadingHeader := fmt.Sprintf("[Loading...] %s", keybinds)
+	exportedHeader := fmt.Sprintf("[Exported!] %s", keybinds)
+	copiedHeader := fmt.Sprintf("[Copied to clipboard!] %s", keybinds)
 
 	previewCmd := fmt.Sprintf("%s preview {1}", cfg.BinPath)
 	activityCmd := fmt.Sprintf("%s activity-preview", cfg.BinPath)
@@ -73,14 +77,23 @@ func Run(cfg Config) (*Result, error) {
 	rebuildCmd := fmt.Sprintf("%s rebuild", cfg.BinPath)
 	rebuildMainOnlyCmd := fmt.Sprintf("%s rebuild --main-only", cfg.BinPath)
 
+	rebuildWithCount := fmt.Sprintf(
+		`sh -c '%s > /tmp/fzf_rebuild_$$ && count=$(grep -cv "^---HEADER---" /tmp/fzf_rebuild_$$); cat /tmp/fzf_rebuild_$$; rm -f /tmp/fzf_rebuild_$$; curl -s "http://localhost:%d" -d "change-header([${count} sessions] %s)"'`,
+		rebuildCmd, port, keybinds,
+	)
+	rebuildMainOnlyWithCount := fmt.Sprintf(
+		`sh -c '%s > /tmp/fzf_rebuild_$$ && count=$(grep -cv "^---HEADER---" /tmp/fzf_rebuild_$$); cat /tmp/fzf_rebuild_$$; rm -f /tmp/fzf_rebuild_$$; curl -s "http://localhost:%d" -d "change-header([${count} main sessions] %s)"'`,
+		rebuildMainOnlyCmd, port, keybinds,
+	)
+
 	resetCmd := fmt.Sprintf("%s reset-header %d '%s'", cfg.BinPath, port, header)
 	exportCmd := fmt.Sprintf("%s export {1} && %s &", cfg.BinPath, resetCmd)
 	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s &", cfg.BinPath, resetCmd)
 
 	toggleCmd := fmt.Sprintf(
-		`sh -c 'if [ "$FZF_PROMPT" = "> " ]; then printf "change-prompt(* )+reload(%s)+change-header(%s)"; else printf "change-prompt(> )+reload(%s)+change-header(%s)"; fi'`,
-		rebuildMainOnlyCmd, mainOnlyHeader,
-		rebuildCmd, header,
+		`sh -c 'if [ "$FZF_PROMPT" = "> " ]; then printf "change-prompt(* )+reload(%s)"; else printf "change-prompt(> )+reload(%s)"; fi'`,
+		rebuildMainOnlyWithCount,
+		rebuildWithCount,
 	)
 
 	args := []string{
@@ -90,13 +103,14 @@ func Run(cfg Config) (*Result, error) {
 		"--no-sort",
 		"--no-separator",
 		"--no-scrollbar",
+		"--info=inline-right",
 		"--prompt=> ",
 		"--border=rounded",
 		fmt.Sprintf("--preview=%s", previewCmd),
 		"--preview-window=right:50%:wrap:border-left",
 		fmt.Sprintf("--header=%s", loadingHeader),
 		fmt.Sprintf("--listen=localhost:%d", port),
-		fmt.Sprintf("--bind=ctrl-r:reload(%s)+change-header(%s)", rebuildCmd, header),
+		fmt.Sprintf("--bind=ctrl-r:reload(%s)", rebuildWithCount),
 		fmt.Sprintf("--bind=ctrl-s:transform:%s", toggleCmd),
 		fmt.Sprintf("--bind=ctrl-o:execute-silent(%s)+change-header(%s)", exportCmd, exportedHeader),
 		fmt.Sprintf("--bind=ctrl-y:execute-silent(%s)+change-header(%s)", copyMDCmd, copiedHeader),
@@ -107,8 +121,6 @@ func Run(cfg Config) (*Result, error) {
 	cmd := exec.Command("fzf", args...)
 	cmd.Stderr = os.Stderr
 
-	// Read and format existing cache for immediate display
-	entries, _ := cache.Read(cacheFile)
 	formatted := formatForDisplay(entries)
 	cmd.Stdin = strings.NewReader(strings.Join(formatted, "\n"))
 
@@ -116,9 +128,13 @@ func Run(cfg Config) (*Result, error) {
 	go func() {
 		time.Sleep(100 * time.Millisecond) // Brief delay for fzf to start listening
 
+		reloadURL := fmt.Sprintf("http://localhost:%d", port)
+
 		// Always do incremental rebuild (fast - only processes new/modified files)
 		newEntries, err := cache.BuildIncremental(cfg.Adapter, cacheFile, entries)
 		if err == nil && len(newEntries) > 0 {
+			newHeader := fmt.Sprintf("[%d sessions] %s", len(newEntries), keybinds)
+
 			// Check if anything changed
 			changed := len(newEntries) != len(entries)
 			if !changed {
@@ -133,18 +149,12 @@ func Run(cfg Config) (*Result, error) {
 
 			if changed {
 				cache.Write(cacheFile, newEntries)
-				// Reload fzf with new data
-				reloadURL := fmt.Sprintf("http://localhost:%d", port)
-				body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, header)
+				body := fmt.Sprintf("reload(%s)+change-header(%s)", rebuildCmd, newHeader)
 				http.Post(reloadURL, "text/plain", strings.NewReader(body))
 			} else {
-				// Just update header
-				reloadURL := fmt.Sprintf("http://localhost:%d", port)
-				http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", header)))
+				http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", newHeader)))
 			}
 		} else {
-			// Just update header on error
-			reloadURL := fmt.Sprintf("http://localhost:%d", port)
 			http.Post(reloadURL, "text/plain", strings.NewReader(fmt.Sprintf("change-header(%s)", header)))
 		}
 	}()
