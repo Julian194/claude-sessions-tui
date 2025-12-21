@@ -180,6 +180,20 @@ The same binary serves both Claude Code and OpenCode - the adapter is selected b
 | `opencode` | OpenCode |
 | anything else | Claude Code |
 
+## Troubleshooting
+
+### Cache directory errors
+
+If you see an error like `failed to create cache: open ...sessions-cache.tsv: no such file or directory`, create the cache directories manually:
+
+```bash
+# For Claude Code
+mkdir -p ~/.claude/.cache
+
+# For OpenCode
+mkdir -p ~/.local/share/opencode/.cache
+```
+
 ## License
 
 MIT
