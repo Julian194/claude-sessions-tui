@@ -120,7 +120,7 @@ func Run(cfg Config) (*Result, error) {
 
 		// Always do incremental rebuild (fast - only processes new/modified files)
 		newEntries, err := cache.BuildIncremental(cfg.Adapter, cacheFile, entries)
-		if err == nil && len(newEntries) > 0 {
+		if err == nil {
 			newHeader := fmt.Sprintf("[%d sessions] %s", len(newEntries), keybinds)
 
 			// Check if anything changed

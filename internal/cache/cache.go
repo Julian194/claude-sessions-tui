@@ -202,8 +202,7 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 
 	// Separate sessions into reusable and needs-extraction
 	type job struct {
-		id          string
-		sessionPath string
+		id string
 	}
 
 	var reusableEntries []Entry
@@ -230,7 +229,7 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 		}
 
 		// Need to extract metadata
-		jobsToProcess = append(jobsToProcess, job{id: id, sessionPath: sessionPath})
+		jobsToProcess = append(jobsToProcess, job{id: id})
 	}
 
 	// Step 2: Parallel extraction with worker pool
@@ -240,9 +239,6 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 	}
 
 	numWorkers := runtime.NumCPU()
-	if numWorkers == 0 {
-		numWorkers = 8
-	}
 
 	jobs := make(chan job, len(jobsToProcess))
 	results := make(chan metaResult, len(jobsToProcess))
