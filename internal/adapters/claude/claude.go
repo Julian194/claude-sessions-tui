@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
@@ -17,8 +18,10 @@ import (
 
 // Adapter implements the Claude Code session adapter
 type Adapter struct {
-	dataDir  string
-	cacheDir string
+	dataDir      string
+	cacheDir     string
+	sessionPaths map[string]string // Cache of session ID -> full file path
+	pathsMu      sync.RWMutex      // Protects sessionPaths
 }
 
 // New creates a new Claude adapter
@@ -32,8 +35,9 @@ func New(dataDir string) *Adapter {
 		}
 	}
 	return &Adapter{
-		dataDir:  dataDir,
-		cacheDir: filepath.Join(dataDir, "..", ".cache"),
+		dataDir:      dataDir,
+		cacheDir:     filepath.Join(dataDir, "..", ".cache"),
+		sessionPaths: make(map[string]string),
 	}
 }
 
@@ -67,10 +71,15 @@ func (a *Adapter) ListSessions() ([]string, error) {
 			if strings.HasPrefix(base, "agent-") {
 				return nil
 			}
+			id := strings.TrimSuffix(base, ".jsonl")
 			sessions = append(sessions, sessionFile{
-				id:    strings.TrimSuffix(base, ".jsonl"),
+				id:    id,
 				mtime: info.ModTime(),
 			})
+			// Cache the full path for this session ID
+			a.pathsMu.Lock()
+			a.sessionPaths[id] = path
+			a.pathsMu.Unlock()
 		}
 		return nil
 	})
@@ -97,7 +106,15 @@ type sessionFile struct {
 
 // GetSessionFile returns the path to a session file
 func (a *Adapter) GetSessionFile(id string) string {
-	// Search for the session file across all project directories
+	// Check cache first (read lock)
+	a.pathsMu.RLock()
+	if path, ok := a.sessionPaths[id]; ok {
+		a.pathsMu.RUnlock()
+		return path
+	}
+	a.pathsMu.RUnlock()
+
+	// Cache miss - search for the session file across all project directories
 	var found string
 	filepath.Walk(a.dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -105,6 +122,10 @@ func (a *Adapter) GetSessionFile(id string) string {
 		}
 		if !info.IsDir() && filepath.Base(path) == id+".jsonl" {
 			found = path
+			// Cache the result for future lookups (write lock)
+			a.pathsMu.Lock()
+			a.sessionPaths[id] = path
+			a.pathsMu.Unlock()
 			return filepath.SkipAll
 		}
 		return nil
@@ -629,6 +650,11 @@ func (a *Adapter) BranchSession(id string) (string, error) {
 	// Touch the file to ensure proper mtime
 	now := time.Now()
 	os.Chtimes(newPath, now, now)
+
+	// Cache the new session path (write lock)
+	a.pathsMu.Lock()
+	a.sessionPaths[newID] = newPath
+	a.pathsMu.Unlock()
 
 	return newID, nil
 }

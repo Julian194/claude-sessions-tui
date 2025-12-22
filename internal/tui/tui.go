@@ -215,7 +215,11 @@ func parseResult(output []byte, adapter adapters.Adapter) (*Result, error) {
 func Rebuild(cfg Config, mainOnly bool) error {
 	cacheFile := filepath.Join(cfg.CacheDir, "sessions-cache.tsv")
 
-	entries, err := cache.BuildFrom(cfg.Adapter)
+	// Read existing cache for incremental build
+	existing, _ := cache.Read(cacheFile)
+
+	// Use incremental build instead of full rebuild
+	entries, err := cache.BuildIncremental(cfg.Adapter, cacheFile, existing)
 	if err != nil {
 		return err
 	}
