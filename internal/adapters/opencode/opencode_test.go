@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -348,4 +349,63 @@ func copyDir(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatalf("copyDir failed: %v", err)
 	}
+}
+
+// Test that ListSessions populates the path cache
+func TestListSessions_PopulatesPathCache(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	sessions, err := a.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+
+	// Verify cache is populated
+	for _, sid := range sessions {
+		path := a.GetSessionFile(sid)
+		if path == "" {
+			t.Errorf("GetSessionFile(%q) returned empty after ListSessions()", sid)
+		}
+	}
+}
+
+// Test that GetSessionFile uses cache
+func TestGetSessionFile_UsesCache(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	// Populate cache
+	sessions, _ := a.ListSessions()
+	if len(sessions) == 0 {
+		t.Skip("No test sessions")
+	}
+
+	sid := sessions[0]
+	path1 := a.GetSessionFile(sid)
+	path2 := a.GetSessionFile(sid)
+
+	if path1 != path2 {
+		t.Errorf("GetSessionFile returned different paths: %q vs %q", path1, path2)
+	}
+}
+
+// Test thread safety
+func TestPathCache_ThreadSafety(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	sessions, _ := a.ListSessions()
+	if len(sessions) == 0 {
+		t.Skip("No sessions for concurrency test")
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, sid := range sessions {
+				_ = a.GetSessionFile(sid)
+			}
+		}()
+	}
+	wg.Wait()
 }

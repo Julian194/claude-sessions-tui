@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -345,4 +346,79 @@ func TestGenerateUUID(t *testing.T) {
 	if len(id1) != 36 {
 		t.Errorf("generateUUID() length = %d, want 36", len(id1))
 	}
+}
+
+// Test that ListSessions populates the path cache
+func TestListSessions_PopulatesPathCache(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	// First call should populate cache
+	sessions, err := a.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+
+	// Verify cache is populated for all sessions
+	for _, sid := range sessions {
+		path := a.GetSessionFile(sid)
+		if path == "" {
+			t.Errorf("GetSessionFile(%q) returned empty after ListSessions()", sid)
+		}
+	}
+}
+
+// Test that GetSessionFile uses cache (no repeated walks)
+func TestGetSessionFile_UsesCache(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	// Populate cache
+	a.ListSessions()
+
+	// Multiple calls should return same result (from cache)
+	path1 := a.GetSessionFile("test-session")
+	path2 := a.GetSessionFile("test-session")
+
+	if path1 != path2 {
+		t.Errorf("GetSessionFile returned different paths: %q vs %q", path1, path2)
+	}
+	if path1 == "" {
+		t.Error("GetSessionFile returned empty path")
+	}
+}
+
+// Test that GetSessionFile handles cache miss gracefully
+func TestGetSessionFile_CacheMiss(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	// Don't call ListSessions - cache is empty
+	// GetSessionFile should still work (fallback to walk)
+	path := a.GetSessionFile("test-session")
+
+	if path == "" {
+		t.Error("GetSessionFile returned empty path on cache miss")
+	}
+}
+
+// Test thread safety of path cache with concurrent access
+func TestPathCache_ThreadSafety(t *testing.T) {
+	a := setupTestAdapter(t)
+
+	// Populate cache first
+	sessions, _ := a.ListSessions()
+	if len(sessions) == 0 {
+		t.Skip("No sessions for concurrency test")
+	}
+
+	// Concurrent reads should not panic
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, sid := range sessions {
+				_ = a.GetSessionFile(sid)
+			}
+		}()
+	}
+	wg.Wait()
 }

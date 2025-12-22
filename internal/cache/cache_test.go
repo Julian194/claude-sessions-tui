@@ -1,8 +1,10 @@
 package cache
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -438,4 +440,143 @@ func TestParentSIDRoundTrip(t *testing.T) {
 	if got[1].ParentSID != "parent-session" {
 		t.Errorf("Child ParentSID = %q, want %q", got[1].ParentSID, "parent-session")
 	}
+}
+
+// Test that BuildIncremental processes all sessions correctly with parallelization
+func TestBuildIncremental_Parallel(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache.tsv")
+
+	// Create 20 mock sessions to test parallelization
+	sessionFiles := make(map[string]string)
+	metas := make(map[string]*adapters.SessionMeta)
+	sessions := make([]string, 20)
+
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("session-%03d", i)
+		sessions[i] = id
+
+		sessionFile := filepath.Join(tmpDir, id+".jsonl")
+		os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+		sessionFiles[id] = sessionFile
+
+		metas[id] = &adapters.SessionMeta{
+			ID:      id,
+			Date:    time.Now().Add(-time.Duration(i) * time.Hour),
+			Project: "test-project",
+			Summary: fmt.Sprintf("Session %d summary", i),
+		}
+	}
+
+	mock := &mockAdapter{
+		sessions:    sessions,
+		sessionFile: sessionFiles,
+		metas:       metas,
+	}
+
+	entries, err := BuildIncremental(mock, cachePath, nil)
+	if err != nil {
+		t.Fatalf("BuildIncremental() error = %v", err)
+	}
+
+	// All 20 sessions should be processed
+	if len(entries) != 20 {
+		t.Errorf("BuildIncremental() returned %d entries, want 20", len(entries))
+	}
+
+	// Verify all session IDs are present
+	entryIDs := make(map[string]bool)
+	for _, e := range entries {
+		entryIDs[e.SessionID] = true
+	}
+
+	for _, sid := range sessions {
+		if !entryIDs[sid] {
+			t.Errorf("Session %q missing from results", sid)
+		}
+	}
+}
+
+// Test that BuildIncremental is deterministic (same input = same output count)
+func TestBuildIncremental_Deterministic(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache.tsv")
+
+	sessionFiles := make(map[string]string)
+	metas := make(map[string]*adapters.SessionMeta)
+	sessions := make([]string, 10)
+
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("session-%d", i)
+		sessions[i] = id
+		sessionFile := filepath.Join(tmpDir, id+".jsonl")
+		os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+		sessionFiles[id] = sessionFile
+		metas[id] = &adapters.SessionMeta{
+			ID:      id,
+			Date:    time.Now(),
+			Project: "test",
+			Summary: "Test",
+		}
+	}
+
+	mock := &mockAdapter{
+		sessions:    sessions,
+		sessionFile: sessionFiles,
+		metas:       metas,
+	}
+
+	// Run multiple times
+	var counts []int
+	for i := 0; i < 5; i++ {
+		entries, err := BuildIncremental(mock, cachePath, nil)
+		if err != nil {
+			t.Fatalf("BuildIncremental() error = %v", err)
+		}
+		counts = append(counts, len(entries))
+	}
+
+	// All runs should return same count
+	for i, c := range counts {
+		if c != counts[0] {
+			t.Errorf("Run %d returned %d entries, run 0 returned %d", i, c, counts[0])
+		}
+	}
+}
+
+// Test BuildIncremental with concurrent calls (thread safety)
+func TestBuildIncremental_ThreadSafety(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sessionFiles := make(map[string]string)
+	metas := make(map[string]*adapters.SessionMeta)
+	sessions := []string{"s1", "s2", "s3"}
+
+	for _, id := range sessions {
+		sessionFile := filepath.Join(tmpDir, id+".jsonl")
+		os.WriteFile(sessionFile, []byte(`{"type":"test"}`), 0644)
+		sessionFiles[id] = sessionFile
+		metas[id] = &adapters.SessionMeta{ID: id, Date: time.Now(), Project: "test", Summary: "Test"}
+	}
+
+	mock := &mockAdapter{
+		sessions:    sessions,
+		sessionFile: sessionFiles,
+		metas:       metas,
+	}
+
+	// Concurrent BuildIncremental calls should not panic
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			cachePath := filepath.Join(tmpDir, fmt.Sprintf("cache-%d.tsv", n))
+			_, err := BuildIncremental(mock, cachePath, nil)
+			if err != nil {
+				t.Errorf("Concurrent BuildIncremental error: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
