@@ -62,14 +62,14 @@
     .content li { margin: 0.4rem 0; }
     .content a { color: var(--accent-cyan); text-decoration: none; border-bottom: 1px solid rgba(78,205,196,0.3); transition: border-color 0.2s; }
     .content a:hover { border-color: var(--accent-cyan); }
-    .content code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.2rem 0.5rem; border-radius: 3px; border: 1px solid var(--border-subtle); color: var(--accent-rose); }
+    .content code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.2rem 0.5rem; border-radius: 3px; border: 1px solid var(--border-subtle); color: var(--accent-rose); word-break: break-all; overflow-wrap: anywhere; }
     .content pre { margin: 1.25rem 0; padding: 1.25rem 1.5rem; background: var(--bg-void) !important; border: 1px solid var(--border-subtle); border-radius: 4px; overflow-x: auto; position: relative; }
     .content pre::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent-violet), var(--accent-rose), var(--accent-amber)); border-radius: 4px 4px 0 0; }
-    .content pre code { background: none !important; border: none; padding: 0; color: var(--text-primary); font-size: 0.8rem; line-height: 1.6; }
-    .tool { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin: 0.75rem 0; padding: 0.6rem 1rem; background: var(--bg-void); border: 1px solid var(--border-subtle); border-left: 2px solid var(--accent-violet); border-radius: 3px; font-family: var(--mono); font-size: 0.75rem; color: var(--text-secondary); transition: all 0.2s ease; }
+    .content pre code { background: none !important; border: none; padding: 0; color: var(--text-primary); font-size: 0.8rem; line-height: 1.6; word-break: normal; overflow-wrap: normal; }
+    .tool { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin: 0.75rem 0; padding: 0.6rem 1rem; background: var(--bg-void); border: 1px solid var(--border-subtle); border-left: 2px solid var(--accent-violet); border-radius: 3px; font-family: var(--mono); font-size: 0.75rem; color: var(--text-secondary); transition: all 0.2s ease; overflow: hidden; max-width: 100%; }
     .tool:hover { background: var(--bg-elevated); border-color: var(--border-accent); }
     .tool-name { color: var(--accent-violet); font-weight: 500; }
-    .tool-detail { color: var(--text-muted); word-break: break-word; white-space: pre-wrap; line-height: 1.5; }
+    .tool-detail { color: var(--text-muted); word-break: break-all; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; max-width: 100%; }
     .search-container { position: sticky; top: 0; z-index: 50; padding: 1rem 0; margin-bottom: 1rem; background: linear-gradient(to bottom, var(--bg-void) 0%, var(--bg-void) 70%, transparent 100%); }
     .search-wrapper { position: relative; display: flex; align-items: center; }
     .search-icon { position: absolute; left: 1rem; width: 18px; height: 18px; color: var(--text-muted); pointer-events: none; }
