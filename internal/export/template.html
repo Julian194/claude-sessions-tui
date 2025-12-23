@@ -154,13 +154,15 @@
     }
 
     const container = document.getElementById('messages');
+    // Build all HTML at once (O(n) instead of O(n²))
+    const htmlParts = [];
     messages.forEach((msg, index) => {
       const delay = Math.min(index * 50, 500);
       const timeStr = formatTime(msg.ts);
       const timeHtml = timeStr ? '<span class="timestamp">' + timeStr + '</span>' : '';
 
       if (msg.type === 'user') {
-        container.innerHTML += '<div class="message user" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">You ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + '</div></div>';
+        htmlParts.push('<div class="message user" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">You ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + '</div></div>');
       } else if (msg.type === 'assistant') {
         let toolsHtml = '';
         if (msg.tools && msg.tools.length > 0) {
@@ -171,12 +173,30 @@
             return '<div class="tool"><span class="tool-name">' + name + '</span>' + (detail ? '<span class="tool-detail">' + detail.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '') + '</div>';
           }).join('');
         }
-        container.innerHTML += '<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>';
+        htmlParts.push('<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>');
       }
     });
+    container.innerHTML = htmlParts.join('');
 
-    document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
-    document.querySelectorAll('.message').forEach((msg, i) => { originalHTML.set(i, msg.innerHTML); });
+    // Defer syntax highlighting to avoid blocking
+    const codeBlocks = document.querySelectorAll('pre code');
+    let hlIndex = 0;
+    function highlightBatch() {
+      const batchSize = 10;
+      const end = Math.min(hlIndex + batchSize, codeBlocks.length);
+      for (; hlIndex < end; hlIndex++) {
+        hljs.highlightElement(codeBlocks[hlIndex]);
+      }
+      if (hlIndex < codeBlocks.length) {
+        requestAnimationFrame(highlightBatch);
+      }
+    }
+    if (codeBlocks.length > 0) requestAnimationFrame(highlightBatch);
+
+    // Defer storing original HTML for search
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.message').forEach((msg, i) => { originalHTML.set(i, msg.innerHTML); });
+    });
 
     function doSearch(query) {
       const allMessages = document.querySelectorAll('.message');
