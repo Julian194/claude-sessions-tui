@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
@@ -192,12 +194,20 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 		existingMap[e.SessionID] = e
 	}
 
+	// Step 1: ListSessions fills the path cache in the adapter
 	sessions, err := adapter.ListSessions()
 	if err != nil {
 		return nil, err
 	}
 
-	var entries []Entry
+	// Separate sessions into reusable and needs-extraction
+	type job struct {
+		id string
+	}
+
+	var reusableEntries []Entry
+	var jobsToProcess []job
+
 	for _, id := range sessions {
 		// Check if file is newer than cache
 		sessionPath := adapter.GetSessionFile(id)
@@ -213,26 +223,77 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 		// If cache exists and file is older, use existing entry
 		if !cacheMtime.IsZero() && info.ModTime().Before(cacheMtime) {
 			if existing, ok := existingMap[id]; ok {
-				entries = append(entries, existing)
+				reusableEntries = append(reusableEntries, existing)
 				continue
 			}
 		}
 
-		// Extract fresh metadata
-		meta, err := adapter.ExtractMeta(id)
-		if err != nil {
-			continue
-		}
-		entries = append(entries, Entry{
-			SessionID: meta.ID,
-			Date:      meta.Date,
-			Project:   meta.Project,
-			Summary:   meta.Summary,
-			ParentSID: meta.ParentSID,
-		})
+		// Need to extract metadata
+		jobsToProcess = append(jobsToProcess, job{id: id})
 	}
 
-	return entries, nil
+	// Step 2: Parallel extraction with worker pool
+	type metaResult struct {
+		entry Entry
+		err   error
+	}
+
+	numWorkers := runtime.NumCPU()
+
+	jobs := make(chan job, len(jobsToProcess))
+	results := make(chan metaResult, len(jobsToProcess))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				meta, err := adapter.ExtractMeta(j.id)
+				if err != nil {
+					results <- metaResult{err: err}
+					continue
+				}
+				results <- metaResult{
+					entry: Entry{
+						SessionID: meta.ID,
+						Date:      meta.Date,
+						Project:   meta.Project,
+						Summary:   meta.Summary,
+						ParentSID: meta.ParentSID,
+					},
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	for _, j := range jobsToProcess {
+		jobs <- j
+	}
+	close(jobs)
+
+	// Wait for completion and close results channel
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	var extractedEntries []Entry
+	for result := range results {
+		if result.err == nil {
+			extractedEntries = append(extractedEntries, result.entry)
+		}
+	}
+
+	// Combine reusable and extracted entries
+	allEntries := make([]Entry, 0, len(reusableEntries)+len(extractedEntries))
+	allEntries = append(allEntries, reusableEntries...)
+	allEntries = append(allEntries, extractedEntries...)
+
+	return allEntries, nil
 }
 
 // Helper functions

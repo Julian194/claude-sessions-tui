@@ -9,14 +9,17 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 )
 
 type Adapter struct {
-	dataDir  string
-	cacheDir string
+	dataDir      string
+	cacheDir     string
+	sessionPaths map[string]string // Cache of session ID -> full file path
+	pathsMu      sync.RWMutex      // Protects sessionPaths
 }
 
 func New(dataDir string) *Adapter {
@@ -25,8 +28,9 @@ func New(dataDir string) *Adapter {
 		dataDir = filepath.Join(home, ".local", "share", "opencode", "storage")
 	}
 	return &Adapter{
-		dataDir:  dataDir,
-		cacheDir: filepath.Join(dataDir, "..", ".cache"),
+		dataDir:      dataDir,
+		cacheDir:     filepath.Join(dataDir, "..", ".cache"),
+		sessionPaths: make(map[string]string),
 	}
 }
 
@@ -55,10 +59,15 @@ func (a *Adapter) ListSessions() ([]string, error) {
 			return nil
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ".json") && strings.HasPrefix(filepath.Base(path), "ses_") {
+			sessionID := strings.TrimSuffix(filepath.Base(path), ".json")
 			sessions = append(sessions, sessionFile{
-				id:    strings.TrimSuffix(filepath.Base(path), ".json"),
+				id:    sessionID,
 				mtime: info.ModTime(),
 			})
+			// Cache the session path
+			a.pathsMu.Lock()
+			a.sessionPaths[sessionID] = path
+			a.pathsMu.Unlock()
 		}
 		return nil
 	})
@@ -83,6 +92,15 @@ type sessionFile struct {
 }
 
 func (a *Adapter) GetSessionFile(id string) string {
+	// Check cache first (read lock)
+	a.pathsMu.RLock()
+	if path, ok := a.sessionPaths[id]; ok {
+		a.pathsMu.RUnlock()
+		return path
+	}
+	a.pathsMu.RUnlock()
+
+	// Cache miss - do the walk
 	var found string
 	sessionDir := filepath.Join(a.dataDir, "session")
 	filepath.Walk(sessionDir, func(path string, info os.FileInfo, err error) error {
@@ -91,6 +109,10 @@ func (a *Adapter) GetSessionFile(id string) string {
 		}
 		if !info.IsDir() && filepath.Base(path) == id+".json" {
 			found = path
+			// Cache the result (write lock)
+			a.pathsMu.Lock()
+			a.sessionPaths[id] = path
+			a.pathsMu.Unlock()
 			return filepath.SkipAll
 		}
 		return nil
@@ -389,6 +411,10 @@ func (a *Adapter) BranchSession(id string) (string, error) {
 	if err := os.WriteFile(newSessionPath, newSessionBytes, 0644); err != nil {
 		return "", err
 	}
+	// Cache the new session path
+	a.pathsMu.Lock()
+	a.sessionPaths[newSessionID] = newSessionPath
+	a.pathsMu.Unlock()
 
 	msgDir := filepath.Join(a.dataDir, "message", id)
 	entries, err := os.ReadDir(msgDir)
