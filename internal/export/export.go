@@ -29,10 +29,18 @@ type TemplateData struct {
 
 // jsMessage represents a message for JavaScript rendering
 type jsMessage struct {
-	Type  string   `json:"type"`
-	Text  string   `json:"text"`
-	Tools []string `json:"tools,omitempty"`
-	Ts    string   `json:"ts,omitempty"`
+	Type     string    `json:"type"`
+	Text     string    `json:"text"`
+	Thinking string    `json:"thinking,omitempty"`
+	Tools    []jsTool  `json:"tools,omitempty"`
+	Ts       string    `json:"ts,omitempty"`
+}
+
+// jsTool represents a tool call with optional result
+type jsTool struct {
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"`
+	Result string `json:"result,omitempty"`
 }
 
 // ToHTML converts messages to HTML format with full styling
@@ -64,8 +72,13 @@ func ToHTML(messages []adapters.Message, info *adapters.SessionInfo, models []st
 
 	// Convert messages to JS format
 	var jsMessages []jsMessage
-	for _, msg := range messages {
-		jsMsg := convertMessage(msg)
+	for i, msg := range messages {
+		// Get next message for tool result matching
+		var nextMsg *adapters.Message
+		if i+1 < len(messages) {
+			nextMsg = &messages[i+1]
+		}
+		jsMsg := convertMessage(msg, nextMsg)
 		if jsMsg != nil {
 			jsMessages = append(jsMessages, *jsMsg)
 			if msg.Role == "user" {
@@ -93,7 +106,7 @@ func ToHTML(messages []adapters.Message, info *adapters.SessionInfo, models []st
 	return buf.String()
 }
 
-func convertMessage(msg adapters.Message) *jsMessage {
+func convertMessage(msg adapters.Message, nextMsg *adapters.Message) *jsMessage {
 	ts := ""
 	if msg.Timestamp > 0 {
 		ts = time.Unix(msg.Timestamp, 0).Format(time.RFC3339)
@@ -112,17 +125,31 @@ func convertMessage(msg adapters.Message) *jsMessage {
 	}
 
 	if msg.Role == "assistant" {
-		var tools []string
-		for _, tc := range msg.ToolCalls {
-			tools = append(tools, formatToolCall(tc))
+		// Build tool results map from next message (if it's a user message with tool results)
+		resultMap := make(map[string]string)
+		if nextMsg != nil && nextMsg.Role == "user" {
+			for _, tr := range nextMsg.ToolResults {
+				resultMap[tr.ToolUseID] = tr.Content
+			}
 		}
 
-		if msg.Content != "" || len(tools) > 0 {
+		var tools []jsTool
+		for _, tc := range msg.ToolCalls {
+			tool := formatToolCall(tc)
+			// Match with result if available
+			if result, ok := resultMap[tc.ID]; ok {
+				tool.Result = truncateResult(result, 500)
+			}
+			tools = append(tools, tool)
+		}
+
+		if msg.Content != "" || msg.Thinking != "" || len(tools) > 0 {
 			return &jsMessage{
-				Type:  "assistant",
-				Text:  msg.Content,
-				Tools: tools,
-				Ts:    ts,
+				Type:     "assistant",
+				Text:     msg.Content,
+				Thinking: msg.Thinking,
+				Tools:    tools,
+				Ts:       ts,
 			}
 		}
 	}
@@ -130,7 +157,7 @@ func convertMessage(msg adapters.Message) *jsMessage {
 	return nil
 }
 
-func formatToolCall(tc adapters.ToolCall) string {
+func formatToolCall(tc adapters.ToolCall) jsTool {
 	name := tc.Name
 	detail := ""
 
@@ -158,10 +185,17 @@ func formatToolCall(tc adapters.ToolCall) string {
 		detail = skill
 	}
 
-	if detail != "" {
-		return fmt.Sprintf("%s: %s", name, detail)
+	return jsTool{
+		Name:   name,
+		Detail: detail,
 	}
-	return name
+}
+
+func truncateResult(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // ToMarkdown converts messages to Markdown format
@@ -198,6 +232,12 @@ func messageToMarkdown(msg adapters.Message) string {
 		sb.WriteString("## 👤 User\n\n")
 	} else {
 		sb.WriteString("## 🤖 Assistant\n\n")
+	}
+
+	if msg.Thinking != "" {
+		sb.WriteString("<details>\n<summary>💭 Thinking</summary>\n\n")
+		sb.WriteString(msg.Thinking)
+		sb.WriteString("\n\n</details>\n\n")
 	}
 
 	if msg.Content != "" {

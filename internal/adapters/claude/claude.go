@@ -476,6 +476,10 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 							if text, ok := m["text"].(string); ok {
 								msg.Content += text
 							}
+						case "thinking":
+							if thinking, ok := m["thinking"].(string); ok {
+								msg.Thinking += thinking
+							}
 						case "tool_use":
 							tc := adapters.ToolCall{
 								ID:   getString(m, "id"),
