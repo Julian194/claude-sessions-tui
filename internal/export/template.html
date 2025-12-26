@@ -70,6 +70,15 @@
     .tool:hover { background: var(--bg-elevated); border-color: var(--border-accent); }
     .tool-name { color: var(--accent-violet); font-weight: 500; }
     .tool-detail { color: var(--text-muted); word-break: break-all; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; max-width: 100%; }
+    .tool-result { margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--text-secondary); font-size: 0.7rem; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; max-height: 150px; overflow-y: auto; }
+    .tool-result-label { color: var(--text-muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.25rem; }
+    .thinking { margin: 0.75rem 0 1rem 0; padding: 1rem 1.25rem; background: linear-gradient(135deg, rgba(167,139,250,0.08) 0%, rgba(167,139,250,0.03) 100%); border: 1px solid rgba(167,139,250,0.2); border-left: 3px solid var(--accent-violet); border-radius: 4px; font-family: var(--serif); font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; position: relative; }
+    .thinking::before { content: '💭 Thinking'; position: absolute; top: -0.6rem; left: 0.75rem; background: var(--bg-surface); padding: 0 0.5rem; font-family: var(--mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-violet); }
+    .thinking-content { max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    .thinking.collapsed .thinking-content { max-height: 60px; }
+    .thinking-toggle { position: absolute; top: 0.5rem; right: 0.75rem; background: none; border: none; color: var(--accent-violet); cursor: pointer; font-family: var(--mono); font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 3px; transition: background 0.15s; }
+    .thinking-toggle:hover { background: rgba(167,139,250,0.1); }
+    [data-theme="light"] .thinking { background: linear-gradient(135deg, rgba(124,58,237,0.06) 0%, rgba(124,58,237,0.02) 100%); border-color: rgba(124,58,237,0.2); }
     .search-container { position: sticky; top: 0; z-index: 50; padding: 1rem 0; margin-bottom: 1rem; background: linear-gradient(to bottom, var(--bg-void) 0%, var(--bg-void) 70%, transparent 100%); }
     .search-wrapper { position: relative; display: flex; align-items: center; }
     .search-icon { position: absolute; left: 1rem; width: 18px; height: 18px; color: var(--text-muted); pointer-events: none; }
@@ -164,16 +173,23 @@
       if (msg.type === 'user') {
         htmlParts.push('<div class="message user" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">You ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + '</div></div>');
       } else if (msg.type === 'assistant') {
+        let thinkingHtml = '';
+        if (msg.thinking) {
+          const escaped = msg.thinking.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          thinkingHtml = '<div class="thinking collapsed"><button class="thinking-toggle" onclick="this.parentElement.classList.toggle(\'collapsed\'); this.textContent = this.parentElement.classList.contains(\'collapsed\') ? \'expand\' : \'collapse\';">expand</button><div class="thinking-content">' + escaped + '</div></div>';
+        }
         let toolsHtml = '';
         if (msg.tools && msg.tools.length > 0) {
           toolsHtml = msg.tools.map(t => {
-            const colonIdx = t.indexOf(':');
-            const name = colonIdx > 0 ? t.substring(0, colonIdx) : t;
-            const detail = colonIdx > 0 ? t.substring(colonIdx + 1).trim() : '';
-            return '<div class="tool"><span class="tool-name">' + name + '</span>' + (detail ? '<span class="tool-detail">' + detail.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '') + '</div>';
+            let resultHtml = '';
+            if (t.result) {
+              const escapedResult = t.result.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              resultHtml = '<div class="tool-result"><div class="tool-result-label">Result</div>' + escapedResult + '</div>';
+            }
+            return '<div class="tool"><span class="tool-name">' + t.name + '</span>' + (t.detail ? '<span class="tool-detail">' + t.detail.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '') + resultHtml + '</div>';
           }).join('');
         }
-        htmlParts.push('<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div><div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>');
+        htmlParts.push('<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div>' + thinkingHtml + '<div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>');
       }
     });
     container.innerHTML = htmlParts.join('');

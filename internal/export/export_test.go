@@ -208,7 +208,7 @@ func TestConvertMessage_SkipsSystemMessages(t *testing.T) {
 		Content: "<system>internal message</system>",
 	}
 
-	result := convertMessage(msg)
+	result := convertMessage(msg, nil)
 	if result != nil {
 		t.Error("convertMessage should skip messages starting with <")
 	}
@@ -220,7 +220,7 @@ func TestConvertMessage_SkipsCaveat(t *testing.T) {
 		Content: "Caveat: This is a caveat message",
 	}
 
-	result := convertMessage(msg)
+	result := convertMessage(msg, nil)
 	if result != nil {
 		t.Error("convertMessage should skip caveat messages")
 	}
@@ -228,37 +228,45 @@ func TestConvertMessage_SkipsCaveat(t *testing.T) {
 
 func TestFormatToolCall(t *testing.T) {
 	tests := []struct {
-		name string
-		tc   adapters.ToolCall
-		want string
+		name       string
+		tc         adapters.ToolCall
+		wantName   string
+		wantDetail string
 	}{
 		{
-			name: "file_path tool",
-			tc:   adapters.ToolCall{Name: "Read", Input: `{"file_path": "/test.txt"}`},
-			want: "Read: /test.txt",
+			name:       "file_path tool",
+			tc:         adapters.ToolCall{Name: "Read", Input: `{"file_path": "/test.txt"}`},
+			wantName:   "Read",
+			wantDetail: "/test.txt",
 		},
 		{
-			name: "command tool",
-			tc:   adapters.ToolCall{Name: "Bash", Input: `{"command": "ls -la"}`},
-			want: "Bash: ls -la",
+			name:       "command tool",
+			tc:         adapters.ToolCall{Name: "Bash", Input: `{"command": "ls -la"}`},
+			wantName:   "Bash",
+			wantDetail: "ls -la",
 		},
 		{
-			name: "pattern tool",
-			tc:   adapters.ToolCall{Name: "Grep", Input: `{"pattern": "TODO", "path": "/src"}`},
-			want: "Grep: TODO in /src",
+			name:       "pattern tool",
+			tc:         adapters.ToolCall{Name: "Grep", Input: `{"pattern": "TODO", "path": "/src"}`},
+			wantName:   "Grep",
+			wantDetail: "TODO in /src",
 		},
 		{
-			name: "no input",
-			tc:   adapters.ToolCall{Name: "Unknown", Input: ""},
-			want: "Unknown",
+			name:       "no input",
+			tc:         adapters.ToolCall{Name: "Unknown", Input: ""},
+			wantName:   "Unknown",
+			wantDetail: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := formatToolCall(tt.tc)
-			if got != tt.want {
-				t.Errorf("formatToolCall() = %q, want %q", got, tt.want)
+			if got.Name != tt.wantName {
+				t.Errorf("formatToolCall().Name = %q, want %q", got.Name, tt.wantName)
+			}
+			if got.Detail != tt.wantDetail {
+				t.Errorf("formatToolCall().Detail = %q, want %q", got.Detail, tt.wantDetail)
 			}
 		})
 	}
