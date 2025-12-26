@@ -178,6 +178,8 @@ func formatToolCall(tc adapters.ToolCall) jsTool {
 		} else {
 			detail = pattern
 		}
+	} else if path := getStringAny(input, "path"); path != "" {
+		detail = path
 	} else if query := getStringAny(input, "query"); query != "" {
 		detail = query
 	} else if url := getStringAny(input, "url"); url != "" {
