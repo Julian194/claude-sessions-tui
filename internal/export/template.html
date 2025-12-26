@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{.Title}} // Claude Session</title>
+  <title>{{.Title}} // Session Export</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -201,7 +201,7 @@
             return '<div class="tool"><span class="tool-name">' + t.name + '</span>' + (t.detail ? '<span class="tool-detail">' + t.detail.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '') + resultHtml + '</div>';
           }).join('');
         }
-        htmlParts.push('<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Claude ' + timeHtml + '</div>' + thinkingHtml + '<div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>');
+        htmlParts.push('<div class="message assistant" id="msg-' + index + '" style="animation-delay: ' + delay + 'ms"><div class="role">Assistant ' + timeHtml + '</div>' + thinkingHtml + '<div class="content">' + marked.parse(msg.text) + toolsHtml + '</div></div>');
       }
     });
     container.innerHTML = htmlParts.join('');
