@@ -167,28 +167,41 @@ func formatToolCall(tc adapters.ToolCall) jsTool {
 	}
 
 	// Extract meaningful display info based on tool type
-	if fp, ok := input["file_path"].(string); ok && fp != "" {
+	// Support both snake_case (Claude) and camelCase (OpenCode) field names
+	if fp := getStringAny(input, "file_path", "filePath"); fp != "" {
 		detail = fp
-	} else if cmd, ok := input["command"].(string); ok && cmd != "" {
+	} else if cmd := getStringAny(input, "command"); cmd != "" {
 		detail = cmd
-	} else if pattern, ok := input["pattern"].(string); ok && pattern != "" {
-		if path, ok := input["path"].(string); ok && path != "" {
+	} else if pattern := getStringAny(input, "pattern"); pattern != "" {
+		if path := getStringAny(input, "path"); path != "" {
 			detail = fmt.Sprintf("%s in %s", pattern, path)
 		} else {
 			detail = pattern
 		}
-	} else if query, ok := input["query"].(string); ok && query != "" {
+	} else if query := getStringAny(input, "query"); query != "" {
 		detail = query
-	} else if url, ok := input["url"].(string); ok && url != "" {
+	} else if url := getStringAny(input, "url"); url != "" {
 		detail = url
-	} else if skill, ok := input["skill"].(string); ok && skill != "" {
+	} else if skill := getStringAny(input, "skill"); skill != "" {
 		detail = skill
+	} else if content := getStringAny(input, "content"); content != "" {
+		detail = truncateResult(content, 100)
 	}
 
 	return jsTool{
 		Name:   name,
 		Detail: detail,
 	}
+}
+
+// getStringAny returns the first non-empty string value from input for any of the given keys
+func getStringAny(input map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := input[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func truncateResult(s string, maxLen int) string {
