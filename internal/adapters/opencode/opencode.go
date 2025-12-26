@@ -174,8 +174,9 @@ func (a *Adapter) GetFilesTouched(id string) ([]string, error) {
 	fileSet := make(map[string]bool)
 	for _, part := range parts {
 		if part.Type == "tool" && (part.Tool == "edit" || part.Tool == "write") {
-			if part.State.Input.FilePath != "" {
-				fileSet[part.State.Input.FilePath] = true
+			var input partInput
+			if err := json.Unmarshal(part.State.Input, &input); err == nil && input.FilePath != "" {
+				fileSet[input.FilePath] = true
 			}
 		}
 	}
@@ -351,17 +352,29 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 
 		msgParts := partsByMsg[msg.ID]
 		for _, p := range msgParts {
-			if p.Type == "text" {
+			switch p.Type {
+			case "text":
 				m.Content += p.Text
-			} else if p.Type == "tool" {
+			case "reasoning":
+				m.Thinking += p.Text
+			case "tool":
 				tc := adapters.ToolCall{
 					ID:   p.CallID,
 					Name: p.Tool,
 				}
-				if input, err := json.Marshal(p.State.Input); err == nil {
-					tc.Input = string(input)
+				if len(p.State.Input) > 0 {
+					tc.Input = string(p.State.Input)
 				}
 				m.ToolCalls = append(m.ToolCalls, tc)
+				// Add tool result if available
+				if p.State.Output != "" {
+					tr := adapters.ToolResult{
+						ToolUseID: p.CallID,
+						Content:   p.State.Output,
+						Success:   p.State.Status == "completed",
+					}
+					m.ToolResults = append(m.ToolResults, tr)
+				}
 			}
 		}
 
@@ -545,14 +558,15 @@ type part struct {
 	CallID    string `json:"callID,omitempty"`
 	Tool      string `json:"tool,omitempty"`
 	State     struct {
-		Status string `json:"status"`
-		Input  struct {
-			FilePath  string `json:"filePath,omitempty"`
-			OldString string `json:"oldString,omitempty"`
-			NewString string `json:"newString,omitempty"`
-		} `json:"input"`
-		Output string `json:"output"`
+		Status string          `json:"status"`
+		Input  json.RawMessage `json:"input"`
+		Output string          `json:"output"`
 	} `json:"state,omitempty"`
+}
+
+// partInput holds common tool input fields for file operations
+type partInput struct {
+	FilePath string `json:"filePath,omitempty"`
 }
 
 func (a *Adapter) loadSession(id string) (*sessionData, error) {
