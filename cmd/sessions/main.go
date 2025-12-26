@@ -419,10 +419,73 @@ func formatJSONL(inputPath string, shortID string) (string, error) {
 }
 
 func formatJSON(inputPath string, shortID string) (string, error) {
-	cmd := exec.Command("jq", ".", inputPath)
-	output, err := cmd.Output()
+	sessionBytes, err := os.ReadFile(inputPath)
 	if err != nil {
-		return "", fmt.Errorf("jq not available or invalid JSON: %w", err)
+		return "", err
+	}
+
+	var session map[string]interface{}
+	if err := json.Unmarshal(sessionBytes, &session); err != nil {
+		return "", err
+	}
+
+	sessionID, _ := session["id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("invalid session file: missing id")
+	}
+
+	sessionDir := filepath.Dir(inputPath)
+	dataDir := filepath.Join(sessionDir, "..", "..", "..")
+
+	messageDir := filepath.Join(dataDir, "message", sessionID)
+	var messages []interface{}
+	if entries, err := os.ReadDir(messageDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			msgBytes, err := os.ReadFile(filepath.Join(messageDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var msg map[string]interface{}
+			if err := json.Unmarshal(msgBytes, &msg); err != nil {
+				continue
+			}
+
+			msgID, _ := msg["id"].(string)
+			if msgID == "" {
+				continue
+			}
+
+			partDir := filepath.Join(dataDir, "part", msgID)
+			var parts []interface{}
+			if pEntries, err := os.ReadDir(partDir); err == nil {
+				for _, pEntry := range pEntries {
+					if pEntry.IsDir() || !strings.HasSuffix(pEntry.Name(), ".json") {
+						continue
+					}
+					partBytes, err := os.ReadFile(filepath.Join(partDir, pEntry.Name()))
+					if err != nil {
+						continue
+					}
+					var part map[string]interface{}
+					if err := json.Unmarshal(partBytes, &part); err != nil {
+						continue
+					}
+					parts = append(parts, part)
+				}
+			}
+			msg["parts"] = parts
+			messages = append(messages, msg)
+		}
+	}
+
+	session["messages"] = messages
+
+	output, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return "", err
 	}
 
 	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.json", shortID)
