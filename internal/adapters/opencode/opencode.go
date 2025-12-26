@@ -351,9 +351,12 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 
 		msgParts := partsByMsg[msg.ID]
 		for _, p := range msgParts {
-			if p.Type == "text" {
+			switch p.Type {
+			case "text":
 				m.Content += p.Text
-			} else if p.Type == "tool" {
+			case "reasoning":
+				m.Thinking += p.Text
+			case "tool":
 				tc := adapters.ToolCall{
 					ID:   p.CallID,
 					Name: p.Tool,
@@ -362,6 +365,15 @@ func (a *Adapter) ExportMessages(id string) ([]adapters.Message, error) {
 					tc.Input = string(input)
 				}
 				m.ToolCalls = append(m.ToolCalls, tc)
+				// Add tool result if available
+				if p.State.Output != "" {
+					tr := adapters.ToolResult{
+						ToolUseID: p.CallID,
+						Content:   p.State.Output,
+						Success:   p.State.Status == "completed",
+					}
+					m.ToolResults = append(m.ToolResults, tr)
+				}
 			}
 		}
 
