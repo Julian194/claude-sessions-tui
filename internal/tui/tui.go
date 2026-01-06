@@ -83,7 +83,7 @@ func Run(cfg Config) (*Result, error) {
 
 	resetCmd := fmt.Sprintf("%s reset-header %d '%s'", cfg.BinPath, port, header)
 	exportCmd := fmt.Sprintf("%s export {1} && %s &", cfg.BinPath, resetCmd)
-	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s &", cfg.BinPath, resetCmd)
+	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s", cfg.BinPath, resetCmd)
 
 	args := []string{
 		"--delimiter=\t",
