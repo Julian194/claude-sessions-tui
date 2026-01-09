@@ -443,15 +443,9 @@ func formatJSON(inputPath string, shortID string) (string, error) {
 	dataDir := filepath.Dir(filepath.Dir(sessionDir))
 
 	messageDir := filepath.Join(dataDir, "message", sessionID)
-	fmt.Fprintf(os.Stderr, "DEBUG: inputPath=%s\n", inputPath)
-	fmt.Fprintf(os.Stderr, "DEBUG: sessionID=%s\n", sessionID)
-	fmt.Fprintf(os.Stderr, "DEBUG: sessionDir=%s\n", sessionDir)
-	fmt.Fprintf(os.Stderr, "DEBUG: dataDir=%s\n", dataDir)
-	fmt.Fprintf(os.Stderr, "DEBUG: messageDir=%s\n", messageDir)
 
 	var messages []interface{}
 	if entries, err := os.ReadDir(messageDir); err == nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: found %d message files\n", len(entries))
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 				continue
@@ -491,8 +485,6 @@ func formatJSON(inputPath string, shortID string) (string, error) {
 			msg["parts"] = parts
 			messages = append(messages, msg)
 		}
-	} else {
-		fmt.Fprintf(os.Stderr, "DEBUG: error reading message dir: %v\n", err)
 	}
 
 	session["messages"] = messages

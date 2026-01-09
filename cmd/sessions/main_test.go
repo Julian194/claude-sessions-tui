@@ -121,3 +121,74 @@ func TestFormatJSONL_FileNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent file")
 	}
 }
+
+func TestFormatJSON(t *testing.T) {
+	// Create OpenCode-style directory structure
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	sessionDir := filepath.Join(dataDir, "session")
+	messageDir := filepath.Join(dataDir, "message", "sess-123")
+
+	os.MkdirAll(sessionDir, 0755)
+	os.MkdirAll(messageDir, 0755)
+
+	// Create session file
+	sessionPath := filepath.Join(sessionDir, "sess-123.json")
+	session := `{"id":"sess-123","title":"Test Session"}`
+	os.WriteFile(sessionPath, []byte(session), 0644)
+
+	// Create message file
+	msgPath := filepath.Join(messageDir, "msg-1.json")
+	msg := `{"id":"msg-1","role":"user","content":"hello"}`
+	os.WriteFile(msgPath, []byte(msg), 0644)
+
+	outputPath, err := formatJSON(sessionPath, "testjson1")
+	if err != nil {
+		t.Fatalf("formatJSON failed: %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	// Check pretty-printed
+	if !strings.Contains(string(content), "  ") {
+		t.Error("output should be pretty-printed")
+	}
+
+	// Check session data present
+	if !strings.Contains(string(content), `"title": "Test Session"`) {
+		t.Error("output should contain session title")
+	}
+
+	// Check messages included
+	if !strings.Contains(string(content), `"messages"`) {
+		t.Error("output should contain messages array")
+	}
+
+	os.Remove(outputPath)
+}
+
+func TestFormatJSON_MissingID(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "invalid.json")
+
+	// Session without id field
+	os.WriteFile(inputPath, []byte(`{"title":"No ID"}`), 0644)
+
+	_, err := formatJSON(inputPath, "testjson2")
+	if err == nil {
+		t.Error("expected error for missing id")
+	}
+	if !strings.Contains(err.Error(), "missing id") {
+		t.Errorf("expected 'missing id' error, got: %v", err)
+	}
+}
+
+func TestFormatJSON_FileNotFound(t *testing.T) {
+	_, err := formatJSON("/nonexistent/path/file.json", "testjson3")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
