@@ -368,6 +368,11 @@ func runOpen(adapter adapters.Adapter, sid string) error {
 		return fmt.Errorf("failed to open in VS Code: %w", err)
 	}
 
+	// Reap child process in background to avoid zombie processes
+	go func() {
+		_ = cmd.Wait()
+	}()
+
 	fmt.Printf("Opening formatted session in VS Code: %s\n", formattedPath)
 	return nil
 }
