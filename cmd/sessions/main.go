@@ -261,16 +261,35 @@ func runCopyMD(adapter adapters.Adapter, sid string) error {
 	models, _ := adapter.GetModels(sid)
 	md := export.ToMarkdown(messages, info, models)
 
-	// Copy to clipboard using pbcopy (macOS)
-	cmd := exec.Command("pbcopy")
-	cmd.Stdin = strings.NewReader(md)
-	if err := cmd.Run(); err != nil {
-		// Fallback: print to stdout
+	var clipboardCmd []string
+	switch {
+	case commandExists("pbcopy"):
+		clipboardCmd = []string{"pbcopy"}
+	case commandExists("wl-copy"):
+		clipboardCmd = []string{"wl-copy"}
+	case commandExists("xclip"):
+		clipboardCmd = []string{"xclip", "-selection", "clipboard"}
+	case commandExists("xsel"):
+		clipboardCmd = []string{"xsel", "--clipboard", "--input"}
+	default:
+		fmt.Println("No clipboard tool found (need pbcopy, wl-copy, xclip, or xsel)")
 		fmt.Print(md)
 		return nil
 	}
 
-	fmt.Println("Copied to clipboard!")
+	cmd := exec.Command(clipboardCmd[0], clipboardCmd[1:]...)
+	cmd.Stdin = strings.NewReader(md)
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "Clipboard copy failed:", err)
+		fmt.Print(md)
+		return nil
+	}
+
+	if commandExists("notify-send") {
+		notifCmd := exec.Command("notify-send", "Claude Sessions", "Copied to clipboard!")
+		notifCmd.Run()
+	}
+	fmt.Fprintln(os.Stderr, "Copied to clipboard!")
 	return nil
 }
 
