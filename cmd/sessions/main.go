@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -66,6 +68,12 @@ func main() {
 			os.Exit(1)
 		}
 		err = runCopyMD(adapter, args[0])
+	case "open":
+		if len(args) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: sessions open <session-id>")
+			os.Exit(1)
+		}
+		err = runOpen(adapter, args[0])
 	case "activity":
 		err = runActivity(adapter, cacheDir)
 	case "activity-preview":
@@ -133,6 +141,8 @@ func runTUI(adapter adapters.Adapter, cacheDir string) error {
 		return resumeSession(adapter, result.SessionID, result.WorkDir)
 	case tui.ActionBranch:
 		return branchSession(adapter, result.SessionID, result.WorkDir)
+	case tui.ActionOpen:
+		return runOpen(adapter, result.SessionID)
 	}
 
 	return nil
@@ -325,6 +335,173 @@ func branchSession(adapter adapters.Adapter, sid string, workDir string) error {
 	return resumeSession(adapter, newSID, workDir)
 }
 
+func runOpen(adapter adapters.Adapter, sid string) error {
+	sessionPath := adapter.GetSessionFile(sid)
+	if sessionPath == "" {
+		return fmt.Errorf("session file not found: %s", sid)
+	}
+
+	if _, err := os.Stat(sessionPath); err != nil {
+		return fmt.Errorf("cannot access session file: %w", err)
+	}
+
+	shortID := sid
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+
+	var formattedPath string
+	var err error
+
+	if adapter.Name() == "claude" {
+		formattedPath, err = formatJSONL(sessionPath, shortID)
+	} else {
+		formattedPath, err = formatJSON(sessionPath, shortID)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to format session file: %w", err)
+	}
+
+	cmd := exec.Command("code", formattedPath)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to open in VS Code: %w", err)
+	}
+
+	// Reap child process in background to avoid zombie processes
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	fmt.Printf("Opening formatted session in VS Code: %s\n", formattedPath)
+	return nil
+}
+
+func formatJSONL(inputPath string, shortID string) (string, error) {
+	f, err := os.Open(inputPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+
+	var formatted []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			formatted = append(formatted, line)
+			continue
+		}
+
+		pretty, err := json.MarshalIndent(obj, "", "  ")
+		if err != nil {
+			formatted = append(formatted, line)
+			continue
+		}
+		formatted = append(formatted, string(pretty))
+	}
+
+	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.jsonl", shortID)
+	if err := os.WriteFile(outputPath, []byte(strings.Join(formatted, "\n\n")), 0644); err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
+}
+
+func formatJSON(inputPath string, shortID string) (string, error) {
+	sessionBytes, err := os.ReadFile(inputPath)
+	if err != nil {
+		return "", err
+	}
+
+	var session map[string]interface{}
+	if err := json.Unmarshal(sessionBytes, &session); err != nil {
+		return "", err
+	}
+
+	sessionID, _ := session["id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("invalid session file: missing id")
+	}
+
+	sessionDir := filepath.Dir(inputPath)
+	dataDir := filepath.Dir(filepath.Dir(sessionDir))
+
+	messageDir := filepath.Join(dataDir, "message", sessionID)
+
+	var messages []interface{}
+	if entries, err := os.ReadDir(messageDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			msgBytes, err := os.ReadFile(filepath.Join(messageDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var msg map[string]interface{}
+			if err := json.Unmarshal(msgBytes, &msg); err != nil {
+				continue
+			}
+
+			msgID, _ := msg["id"].(string)
+			if msgID == "" {
+				continue
+			}
+
+			partDir := filepath.Join(dataDir, "part", msgID)
+			var parts []interface{}
+			if pEntries, err := os.ReadDir(partDir); err == nil {
+				for _, pEntry := range pEntries {
+					if pEntry.IsDir() || !strings.HasSuffix(pEntry.Name(), ".json") {
+						continue
+					}
+					partBytes, err := os.ReadFile(filepath.Join(partDir, pEntry.Name()))
+					if err != nil {
+						continue
+					}
+					var part map[string]interface{}
+					if err := json.Unmarshal(partBytes, &part); err != nil {
+						continue
+					}
+					parts = append(parts, part)
+				}
+			}
+			msg["parts"] = parts
+			messages = append(messages, msg)
+		}
+	}
+
+	session["messages"] = messages
+
+	output, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.json", shortID)
+	if err := os.WriteFile(outputPath, output, 0644); err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
+}
+
 func printUsage(binaryName string, adapter adapters.Adapter) {
 	fmt.Printf(`%s - browse and export AI coding sessions (v2.0.0)
 
@@ -341,12 +518,14 @@ Commands:
   stats <id>    Show statistics for a session
   export <id>   Export session to HTML
   copy-md <id>  Copy session as markdown to clipboard
+  open <id>     Open original session file in VS Code
   help          Show this help message
 
 Keyboard shortcuts in TUI:
   Enter     Resume selected session
   Ctrl-O    Export session to HTML
   Ctrl-Y    Copy session as markdown
+  Ctrl-E    Open original session file in VS Code
   Ctrl-B    Branch session
   Ctrl-R    Refresh cache
 
