@@ -58,6 +58,8 @@ func (a *Adapter) ResumeCmd(id string) string {
 }
 
 // ListSessions returns all session IDs sorted by modification time (newest first)
+// This includes both regular sessions and agent sessions (sub-agents spawned by Claude)
+// Agent sessions use a unique ID format: parent-session-id/agent-id to avoid conflicts
 func (a *Adapter) ListSessions() ([]string, error) {
 	var sessions []sessionFile
 
@@ -67,11 +69,18 @@ func (a *Adapter) ListSessions() ([]string, error) {
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ".jsonl") {
 			base := filepath.Base(path)
-			// Filter out agent sessions
-			if strings.HasPrefix(base, "agent-") {
-				return nil
+			rawID := strings.TrimSuffix(base, ".jsonl")
+
+			// Create unique ID - for agent sessions in subagents/ dir, include parent session
+			id := rawID
+			dir := filepath.Dir(path)
+			if filepath.Base(dir) == "subagents" {
+				// Path: .../projects/project/parent-session-id/subagents/agent-xxx.jsonl
+				parentDir := filepath.Dir(dir)
+				parentID := filepath.Base(parentDir)
+				id = parentID + "/" + rawID
 			}
-			id := strings.TrimSuffix(base, ".jsonl")
+
 			sessions = append(sessions, sessionFile{
 				id:    id,
 				mtime: info.ModTime(),
@@ -105,6 +114,7 @@ type sessionFile struct {
 }
 
 // GetSessionFile returns the path to a session file
+// Handles both regular IDs (uuid) and composite agent IDs (parent-uuid/agent-xxx)
 func (a *Adapter) GetSessionFile(id string) string {
 	// Check cache first (read lock)
 	a.pathsMu.RLock()
@@ -114,13 +124,39 @@ func (a *Adapter) GetSessionFile(id string) string {
 	}
 	a.pathsMu.RUnlock()
 
+	// Parse composite ID for agent sessions
+	var searchPattern string
+	if strings.Contains(id, "/") {
+		// Composite ID: parent-session-id/agent-xxx
+		parts := strings.SplitN(id, "/", 2)
+		if len(parts) == 2 {
+			searchPattern = parts[1] + ".jsonl"
+		} else {
+			searchPattern = id + ".jsonl"
+		}
+	} else {
+		searchPattern = id + ".jsonl"
+	}
+
 	// Cache miss - search for the session file across all project directories
 	var found string
 	filepath.Walk(a.dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-		if !info.IsDir() && filepath.Base(path) == id+".jsonl" {
+		if !info.IsDir() && filepath.Base(path) == searchPattern {
+			// For agent sessions, verify we have the right parent
+			if strings.Contains(id, "/") {
+				parts := strings.SplitN(id, "/", 2)
+				parentID := parts[0]
+				dir := filepath.Dir(path)
+				if filepath.Base(dir) == "subagents" {
+					parentDir := filepath.Dir(dir)
+					if filepath.Base(parentDir) != parentID {
+						return nil // Wrong parent, keep searching
+					}
+				}
+			}
 			found = path
 			// Cache the result for future lookups (write lock)
 			a.pathsMu.Lock()
@@ -132,6 +168,9 @@ func (a *Adapter) GetSessionFile(id string) string {
 	})
 	return found
 }
+
+// ErrNoMessages indicates a session has no user/assistant messages (metadata-only)
+var ErrNoMessages = fmt.Errorf("session has no messages")
 
 // ExtractMeta extracts metadata from a session for cache building
 func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
@@ -151,27 +190,45 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	// Parse file for summary and parent session
 	summary := ""
 	parentSID := ""
+	hasMessages := false
 	records, err := a.parseFile(path)
 	if err == nil {
+		// Check if this is an agent session (first record has agentId)
+		isAgent := false
+		for _, r := range records {
+			if r.AgentID != "" {
+				isAgent = true
+				// For agent sessions, the sessionId field points to parent
+				if r.SessionID != "" {
+					parentSID = r.SessionID
+				}
+				break
+			}
+		}
+
 		for _, r := range records {
 			if r.Type == "summary" && summary == "" {
 				summary = r.Summary
 			}
-			if r.Type == "branch" && r.ParentSession != "" {
+			// For non-agent sessions, check for branch metadata
+			if !isAgent && r.Type == "branch" && r.ParentSession != "" {
 				parentSID = r.ParentSession
 			}
-		}
-		// Fallback to first user message if no summary
-		if summary == "" {
-			for _, r := range records {
-				if r.Type == "user" && r.Message.Role == "user" {
-					if content, ok := r.Message.Content.(string); ok {
-						summary = truncate(content, 100)
-						break
-					}
-				}
+			// Check if session has actual messages
+			if r.Type == "user" || r.Type == "assistant" {
+				hasMessages = true
 			}
 		}
+
+		// Fallback to first user message if no summary
+		if summary == "" {
+			summary = extractFirstUserMessage(records)
+		}
+	}
+
+	// Skip metadata-only sessions (no actual conversation)
+	if !hasMessages {
+		return nil, ErrNoMessages
 	}
 
 	return &adapters.SessionMeta{
@@ -181,6 +238,56 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 		Summary:   summary,
 		ParentSID: parentSID,
 	}, nil
+}
+
+// extractFirstUserMessage finds the first meaningful user message content
+// Falls back to first assistant message if no user message found (for warmup agents)
+func extractFirstUserMessage(records []record) string {
+	// First try to find a user message
+	for _, r := range records {
+		if r.Type == "user" && r.Message.Role == "user" {
+			content := extractTextContent(r.Message.Content)
+			if content != "" {
+				return truncate(content, 100)
+			}
+		}
+	}
+	// Fallback to first assistant message (for warmup/agent sessions without user prompt)
+	for _, r := range records {
+		if r.Type == "assistant" && r.Message.Role == "assistant" {
+			content := extractTextContent(r.Message.Content)
+			if content != "" {
+				// Prefix to indicate this is from assistant
+				return truncate(content, 100)
+			}
+		}
+	}
+	return ""
+}
+
+// extractTextContent extracts text from message content (handles both string and array formats)
+func extractTextContent(content interface{}) string {
+	switch c := content.(type) {
+	case string:
+		return c
+	case []interface{}:
+		// Content can be an array of content blocks
+		var texts []string
+		for _, item := range c {
+			if m, ok := item.(map[string]interface{}); ok {
+				// Check for text type content blocks
+				if m["type"] == "text" {
+					if text, ok := m["text"].(string); ok {
+						texts = append(texts, text)
+					}
+				}
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, " ")
+		}
+	}
+	return ""
 }
 
 // GetSessionInfo returns detailed session information
@@ -433,7 +540,8 @@ func (a *Adapter) GetFirstMessage(id string) (string, error) {
 
 	for _, r := range records {
 		if r.Type == "user" && !r.IsMeta && r.Message.Role == "user" {
-			if content, ok := r.Message.Content.(string); ok {
+			content := extractTextContent(r.Message.Content)
+			if content != "" {
 				return truncate(content, 200), nil
 			}
 		}
@@ -516,6 +624,8 @@ type record struct {
 	Timestamp     string  `json:"timestamp,omitempty"`
 	IsMeta        bool    `json:"isMeta,omitempty"`
 	ParentSession string  `json:"parentSession,omitempty"` // For branch metadata
+	SessionID     string  `json:"sessionId,omitempty"`     // Parent session ID (for agent sessions)
+	AgentID       string  `json:"agentId,omitempty"`       // Agent ID (for agent sessions)
 }
 
 type message struct {
