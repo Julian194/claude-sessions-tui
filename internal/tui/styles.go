@@ -48,6 +48,11 @@ var (
 	childIndicatorStyle = lipgloss.NewStyle().
 				Foreground(dimWhite)
 
+	// Agent session items (slightly dimmed)
+	agentItemStyle = lipgloss.NewStyle().
+			Foreground(dimWhite).
+			Italic(true)
+
 	// Status bar
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(dimWhite).

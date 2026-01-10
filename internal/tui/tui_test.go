@@ -55,16 +55,17 @@ func TestSessionItem_Title(t *testing.T) {
 	// Pinned session
 	item.isPinned = true
 	title = item.Title()
-	if !contains(title, "*") {
+	if !contains(title, "★") {
 		t.Errorf("Pinned session should have star indicator, got: %s", title)
 	}
 
-	// Child session
+	// Child/agent session
 	item.isPinned = false
-	item.entry.ParentSID = "parent-123"
+	item.depth = 1
+	item.isAgent = true
 	title = item.Title()
-	if !contains(title, "  ") {
-		t.Errorf("Child session should be indented, got: %s", title)
+	if !contains(title, "↳") {
+		t.Errorf("Child session should have arrow indicator, got: %s", title)
 	}
 }
 

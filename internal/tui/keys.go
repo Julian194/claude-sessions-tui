@@ -18,6 +18,12 @@ type KeyMap struct {
 	Refresh key.Binding
 	Pin     key.Binding
 
+	// Quick filters
+	FilterToday   key.Binding
+	FilterWeek    key.Binding
+	FilterProject key.Binding
+	FilterCost    key.Binding
+
 	// Toggle
 	ToggleActivity key.Binding
 
@@ -67,6 +73,22 @@ func DefaultKeyMap() KeyMap {
 		Pin: key.NewBinding(
 			key.WithKeys("p"),
 			key.WithHelp("p", "pin"),
+		),
+		FilterToday: key.NewBinding(
+			key.WithKeys("1"),
+			key.WithHelp("1", "today"),
+		),
+		FilterWeek: key.NewBinding(
+			key.WithKeys("2"),
+			key.WithHelp("2", "week"),
+		),
+		FilterProject: key.NewBinding(
+			key.WithKeys("3"),
+			key.WithHelp("3", "project"),
+		),
+		FilterCost: key.NewBinding(
+			key.WithKeys("4"),
+			key.WithHelp("4", "high cost"),
 		),
 		ToggleActivity: key.NewBinding(
 			key.WithKeys("ctrl+a"),
