@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,6 +15,17 @@ import (
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
+)
+
+// FilterMode represents the current filter type
+type FilterMode int
+
+const (
+	FilterNone FilterMode = iota
+	FilterProject
+	FilterToday
+	FilterWeek
+	FilterHighCost
 )
 
 // Model is the main Bubble Tea model
@@ -29,6 +41,8 @@ type Model struct {
 	cacheDir     string
 	activePane   string // "list" or "preview"
 	showActivity bool
+	filterMode   FilterMode
+	filterValue  string // For project filter
 
 	// Layout
 	width, height int
@@ -45,19 +59,40 @@ type Model struct {
 	done   bool
 }
 
+// ListItem is the interface for items in our list (date headers or sessions)
+type ListItem interface {
+	list.Item
+	IsHeader() bool
+	IsAgent() bool
+}
+
+// DateHeader represents a date separator in the list
+type DateHeader struct {
+	date  string
+	count int
+}
+
+func (d DateHeader) Title() string       { return d.date }
+func (d DateHeader) Description() string { return fmt.Sprintf("%d sessions", d.count) }
+func (d DateHeader) FilterValue() string { return "" } // Don't filter headers
+func (d DateHeader) IsHeader() bool      { return true }
+func (d DateHeader) IsAgent() bool       { return false }
+
 // SessionItem implements list.Item for cache.Entry
 type SessionItem struct {
 	entry    cache.Entry
 	isPinned bool
+	isAgent  bool
+	depth    int // 0 = root, 1 = agent child
 }
 
 func (s SessionItem) Title() string {
 	prefix := ""
 	if s.isPinned {
-		prefix = "* "
+		prefix = "★ "
 	}
-	if s.entry.ParentSID != "" && s.entry.ParentSID != "-" {
-		prefix += "  "
+	if s.depth > 0 {
+		prefix += "  ↳ "
 	}
 	return prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
 }
@@ -70,18 +105,65 @@ func (s SessionItem) FilterValue() string {
 	return s.entry.Project + " " + s.entry.Summary + " " + s.entry.SessionID
 }
 
+func (s SessionItem) IsHeader() bool { return false }
+func (s SessionItem) IsAgent() bool  { return s.isAgent }
+
+// CustomDelegate handles rendering of both headers and session items
+type CustomDelegate struct {
+	list.DefaultDelegate
+}
+
+func NewCustomDelegate() CustomDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles.SelectedTitle = selectedItemStyle
+	d.Styles.SelectedDesc = selectedItemStyle
+	d.Styles.NormalTitle = normalItemStyle
+	d.Styles.NormalDesc = dimItemStyle
+	return CustomDelegate{DefaultDelegate: d}
+}
+
+func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if listItem, ok := item.(ListItem); ok && listItem.IsHeader() {
+		// Render date header
+		header, _ := item.(DateHeader)
+		str := dateHeaderStyle.Render(fmt.Sprintf("── %s ──", header.date))
+		fmt.Fprint(w, str)
+		return
+	}
+
+	// Check if this is an agent session
+	if listItem, ok := item.(ListItem); ok && listItem.IsAgent() {
+		session := item.(SessionItem)
+		title := session.Title()
+		desc := session.Description()
+
+		if index == m.Index() {
+			title = selectedItemStyle.Render(title)
+			desc = selectedItemStyle.Render(desc)
+		} else {
+			title = agentItemStyle.Render(title)
+			desc = dimItemStyle.Render(desc)
+		}
+		fmt.Fprintf(w, "%s\n%s", title, desc)
+		return
+	}
+
+	// Default rendering for regular sessions
+	d.DefaultDelegate.Render(w, m, index, item)
+}
+
+func (d CustomDelegate) Height() int { return 2 }
+
+func (d CustomDelegate) Spacing() int { return 0 }
+
 // NewModel creates a new TUI model
 func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 	// Load pins
 	pins := NewPins(cacheDir)
 	pins.Load()
 
-	// Create list with default delegate
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = selectedItemStyle
-	delegate.Styles.SelectedDesc = selectedItemStyle
-	delegate.Styles.NormalTitle = normalItemStyle
-	delegate.Styles.NormalDesc = dimItemStyle
+	// Create list with custom delegate
+	delegate := NewCustomDelegate()
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Sessions"
@@ -102,6 +184,7 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 		cacheDir:   cacheDir,
 		activePane: "list",
 		keys:       DefaultKeyMap(),
+		filterMode: FilterNone,
 	}
 }
 
@@ -202,12 +285,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Select):
-			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			item := m.getSelectedSession()
+			if item != nil {
 				m.result = &Result{
 					SessionID: item.entry.SessionID,
 					Action:    ActionResume,
 				}
-				// Get workdir
 				if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
 					m.result.WorkDir = info.WorkDir
 				}
@@ -216,7 +299,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Export):
-			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			item := m.getSelectedSession()
+			if item != nil {
 				m.result = &Result{
 					SessionID: item.entry.SessionID,
 					Action:    ActionExport,
@@ -226,7 +310,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.CopyMD):
-			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			item := m.getSelectedSession()
+			if item != nil {
 				m.result = &Result{
 					SessionID: item.entry.SessionID,
 					Action:    ActionCopyMD,
@@ -236,7 +321,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Branch):
-			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			item := m.getSelectedSession()
+			if item != nil {
 				m.result = &Result{
 					SessionID: item.entry.SessionID,
 					Action:    ActionBranch,
@@ -246,7 +332,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Pin):
-			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			item := m.getSelectedSession()
+			if item != nil {
 				pinned := m.pins.Toggle(item.entry.SessionID)
 				m.pins.Save()
 				if pinned {
@@ -265,17 +352,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.ToggleActivity):
 			m.showActivity = !m.showActivity
 			m.updatePreview()
+
+		// Quick filters
+		case key.Matches(msg, m.keys.FilterToday):
+			if m.filterMode == FilterToday {
+				m.filterMode = FilterNone
+				m.message = "Filter: All"
+			} else {
+				m.filterMode = FilterToday
+				m.message = "Filter: Today"
+			}
+			m.updateListItems()
+
+		case key.Matches(msg, m.keys.FilterWeek):
+			if m.filterMode == FilterWeek {
+				m.filterMode = FilterNone
+				m.message = "Filter: All"
+			} else {
+				m.filterMode = FilterWeek
+				m.message = "Filter: This week"
+			}
+			m.updateListItems()
+
+		case key.Matches(msg, m.keys.FilterCost):
+			if m.filterMode == FilterHighCost {
+				m.filterMode = FilterNone
+				m.message = "Filter: All"
+			} else {
+				m.filterMode = FilterHighCost
+				m.message = "Filter: High cost (>$0.10)"
+			}
+			m.updateListItems()
+
+		case key.Matches(msg, m.keys.FilterProject):
+			item := m.getSelectedSession()
+			if item != nil {
+				if m.filterMode == FilterProject && m.filterValue == item.entry.Project {
+					m.filterMode = FilterNone
+					m.message = "Filter: All"
+				} else {
+					m.filterMode = FilterProject
+					m.filterValue = item.entry.Project
+					m.message = "Filter: " + item.entry.Project
+				}
+				m.updateListItems()
+			}
 		}
 	}
 
 	// Route updates to active pane
 	if m.activePane == "list" {
 		var cmd tea.Cmd
+		oldIndex := m.list.Index()
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
 
 		// Update preview when selection changes
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if m.list.Index() != oldIndex {
+			// Skip date headers
+			m.skipHeaders()
 			m.updatePreview()
 		}
 	} else {
@@ -285,6 +420,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// skipHeaders moves selection past date headers
+func (m *Model) skipHeaders() {
+	items := m.list.Items()
+	idx := m.list.Index()
+	if idx >= 0 && idx < len(items) {
+		if item, ok := items[idx].(ListItem); ok && item.IsHeader() {
+			// Move to next non-header item
+			for i := idx + 1; i < len(items); i++ {
+				if nextItem, ok := items[i].(ListItem); ok && !nextItem.IsHeader() {
+					m.list.Select(i)
+					return
+				}
+			}
+			// If no next item, try previous
+			for i := idx - 1; i >= 0; i-- {
+				if prevItem, ok := items[i].(ListItem); ok && !prevItem.IsHeader() {
+					m.list.Select(i)
+					return
+				}
+			}
+		}
+	}
+}
+
+// getSelectedSession returns the selected session item (skipping headers)
+func (m *Model) getSelectedSession() *SessionItem {
+	selected := m.list.SelectedItem()
+	if selected == nil {
+		return nil
+	}
+	if item, ok := selected.(SessionItem); ok {
+		return &item
+	}
+	return nil
 }
 
 // View implements tea.Model
@@ -326,9 +497,21 @@ func (m Model) View() string {
 	// Join panes horizontally
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listPane, previewPane)
 
-	// Status bar
-	help := helpStyle.Render("enter:resume  ctrl+o:export  ctrl+y:copy  ctrl+b:branch  p:pin  ctrl+r:refresh  tab:switch  q:quit")
-	status := statusBarStyle.Render(m.message)
+	// Status bar with filter indicator
+	filterIndicator := ""
+	switch m.filterMode {
+	case FilterToday:
+		filterIndicator = " [Today]"
+	case FilterWeek:
+		filterIndicator = " [Week]"
+	case FilterHighCost:
+		filterIndicator = " [$$$]"
+	case FilterProject:
+		filterIndicator = " [" + m.filterValue + "]"
+	}
+
+	help := helpStyle.Render("enter:resume  p:pin  1:today  2:week  3:project  4:cost  ctrl+r:refresh  q:quit")
+	status := statusBarStyle.Render(m.message + filterIndicator)
 	statusBar := lipgloss.JoinHorizontal(lipgloss.Left, status, "  ", help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar)
@@ -344,35 +527,132 @@ func (m *Model) updateLayout() {
 	m.preview.Height = m.height - 6
 }
 
-// updateListItems refreshes the list with sorted sessions
+// updateListItems refreshes the list with grouped and sorted sessions
 func (m *Model) updateListItems() {
-	// Sort: pinned first, then by date
-	sorted := make([]cache.Entry, len(m.sessions))
-	copy(sorted, m.sessions)
+	// Apply filters first
+	filtered := m.applyFilters(m.sessions)
 
-	sort.SliceStable(sorted, func(i, j int) bool {
-		iPinned := m.pins.IsPinned(sorted[i].SessionID)
-		jPinned := m.pins.IsPinned(sorted[j].SessionID)
+	// Separate main sessions and agent sessions
+	mainSessions := make([]cache.Entry, 0)
+	agentsByParent := make(map[string][]cache.Entry)
+
+	for _, entry := range filtered {
+		if entry.ParentSID != "" && entry.ParentSID != "-" {
+			agentsByParent[entry.ParentSID] = append(agentsByParent[entry.ParentSID], entry)
+		} else {
+			mainSessions = append(mainSessions, entry)
+		}
+	}
+
+	// Sort main sessions: pinned first, then by date
+	sort.SliceStable(mainSessions, func(i, j int) bool {
+		iPinned := m.pins.IsPinned(mainSessions[i].SessionID)
+		jPinned := m.pins.IsPinned(mainSessions[j].SessionID)
 		if iPinned != jPinned {
 			return iPinned
 		}
-		return sorted[i].Date.After(sorted[j].Date)
+		return mainSessions[i].Date.After(mainSessions[j].Date)
 	})
 
-	items := make([]list.Item, len(sorted))
-	for i, entry := range sorted {
-		items[i] = SessionItem{
+	// Sort agents by date within each parent
+	for parentID := range agentsByParent {
+		agents := agentsByParent[parentID]
+		sort.SliceStable(agents, func(i, j int) bool {
+			return agents[i].Date.After(agents[j].Date)
+		})
+		agentsByParent[parentID] = agents
+	}
+
+	// Build list with date headers and nested agents
+	var items []list.Item
+	currentDate := ""
+	dateCount := 0
+
+	for _, entry := range mainSessions {
+		entryDate := entry.Date.Format("Monday, January 2, 2006")
+
+		// Add date header if date changed
+		if entryDate != currentDate {
+			if currentDate != "" && dateCount > 0 {
+				// Insert header for previous date at correct position
+			}
+			items = append(items, DateHeader{date: entryDate, count: 0})
+			currentDate = entryDate
+			dateCount = 0
+		}
+		dateCount++
+
+		// Add main session
+		items = append(items, SessionItem{
 			entry:    entry,
 			isPinned: m.pins.IsPinned(entry.SessionID),
+			isAgent:  false,
+			depth:    0,
+		})
+
+		// Add nested agent sessions
+		if agents, ok := agentsByParent[entry.SessionID]; ok {
+			for _, agent := range agents {
+				items = append(items, SessionItem{
+					entry:    agent,
+					isPinned: m.pins.IsPinned(agent.SessionID),
+					isAgent:  true,
+					depth:    1,
+				})
+			}
 		}
 	}
+
 	m.list.SetItems(items)
+
+	// Skip to first non-header item
+	m.skipHeaders()
+}
+
+// applyFilters filters sessions based on current filter mode
+func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
+	if m.filterMode == FilterNone {
+		return sessions
+	}
+
+	var filtered []cache.Entry
+	now := sessions[0].Date // Use most recent session date as reference
+
+	for _, entry := range sessions {
+		switch m.filterMode {
+		case FilterToday:
+			if entry.Date.Format("2006-01-02") == now.Format("2006-01-02") {
+				filtered = append(filtered, entry)
+			}
+		case FilterWeek:
+			weekAgo := now.AddDate(0, 0, -7)
+			if entry.Date.After(weekAgo) {
+				filtered = append(filtered, entry)
+			}
+		case FilterProject:
+			if entry.Project == m.filterValue {
+				filtered = append(filtered, entry)
+			}
+		case FilterHighCost:
+			// Include all for now, filter on stats (would need adapter call)
+			// For simplicity, include sessions - could be enhanced
+			filtered = append(filtered, entry)
+		default:
+			filtered = append(filtered, entry)
+		}
+	}
+
+	// If filter results empty, show all
+	if len(filtered) == 0 {
+		return sessions
+	}
+	return filtered
 }
 
 // updatePreview updates the preview pane content
 func (m *Model) updatePreview() {
-	item, ok := m.list.SelectedItem().(SessionItem)
-	if !ok {
+	item := m.getSelectedSession()
+	if item == nil {
 		m.preview.SetContent("No session selected")
 		return
 	}
@@ -385,10 +665,14 @@ func (m *Model) updatePreview() {
 	// Generate preview content
 	var b strings.Builder
 
-	// Header
+	// Header with styling
 	b.WriteString(fmt.Sprintf("ID: %s\n", item.entry.SessionID))
 	b.WriteString(fmt.Sprintf("Project: %s\n", item.entry.Project))
 	b.WriteString(fmt.Sprintf("Date: %s\n", item.entry.Date.Format("2006-01-02 15:04")))
+
+	if item.isAgent {
+		b.WriteString(fmt.Sprintf("Parent: %s\n", item.entry.ParentSID))
+	}
 
 	// Get additional info from adapter
 	if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
@@ -406,16 +690,16 @@ func (m *Model) updatePreview() {
 
 	// Summaries
 	if summaries, err := m.adapter.GetSummaries(item.entry.SessionID); err == nil && len(summaries) > 0 {
-		b.WriteString("--- Topics ---\n")
+		b.WriteString("━━━ Topics ━━━\n")
 		for _, s := range summaries {
-			b.WriteString(fmt.Sprintf("* %s\n", s))
+			b.WriteString(fmt.Sprintf("• %s\n", s))
 		}
 		b.WriteString("\n")
 	}
 
 	// Slash commands
 	if cmds, err := m.adapter.GetSlashCommands(item.entry.SessionID); err == nil && len(cmds) > 0 {
-		b.WriteString("--- Slash Commands ---\n")
+		b.WriteString("━━━ Slash Commands ━━━\n")
 		for _, cmd := range cmds {
 			b.WriteString(fmt.Sprintf("  %s\n", cmd))
 		}
@@ -424,13 +708,13 @@ func (m *Model) updatePreview() {
 
 	// Files
 	if files, err := m.adapter.GetFilesTouched(item.entry.SessionID); err == nil && len(files) > 0 {
-		b.WriteString("--- Files ---\n")
+		b.WriteString("━━━ Files ━━━\n")
 		shown := files
 		if len(shown) > 10 {
 			shown = shown[:10]
 		}
 		for _, f := range shown {
-			b.WriteString(fmt.Sprintf("* %s\n", f))
+			b.WriteString(fmt.Sprintf("• %s\n", f))
 		}
 		if len(files) > 10 {
 			b.WriteString(fmt.Sprintf("  ... and %d more\n", len(files)-10))
@@ -440,7 +724,7 @@ func (m *Model) updatePreview() {
 
 	// Stats
 	if stats, err := m.adapter.GetStats(item.entry.SessionID); err == nil {
-		b.WriteString("--- Stats ---\n")
+		b.WriteString("━━━ Stats ━━━\n")
 		b.WriteString(fmt.Sprintf("Messages: %d user, %d assistant\n", stats.UserMessages, stats.AssistantMessages))
 		b.WriteString(fmt.Sprintf("Tokens: %d in, %d out", stats.InputTokens, stats.OutputTokens))
 		if stats.CacheRead > 0 || stats.CacheWrite > 0 {
@@ -454,7 +738,7 @@ func (m *Model) updatePreview() {
 	// First message (if no summaries)
 	if summaries, _ := m.adapter.GetSummaries(item.entry.SessionID); len(summaries) == 0 {
 		if msg, err := m.adapter.GetFirstMessage(item.entry.SessionID); err == nil && msg != "" {
-			b.WriteString("--- First Message ---\n")
+			b.WriteString("━━━ First Message ━━━\n")
 			b.WriteString(msg)
 			b.WriteString("\n")
 		}
