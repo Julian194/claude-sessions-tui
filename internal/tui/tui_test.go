@@ -1,163 +1,202 @@
 package tui
 
 import (
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
 )
 
-func TestFormatForDisplay_ChildIndicator(t *testing.T) {
-	entries := []cache.Entry{
-		{
-			SessionID: "parent-session",
-			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-			Project:   "project-a",
-			Summary:   "Parent session",
-			ParentSID: "",
-		},
-		{
-			SessionID: "child-session",
-			Date:      time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
-			Project:   "project-a",
-			Summary:   "Child session",
-			ParentSID: "parent-session",
+func TestSessionItem_FilterValue(t *testing.T) {
+	item := SessionItem{
+		entry: cache.Entry{
+			SessionID: "abc-123",
+			Project:   "my-project",
+			Summary:   "Test summary",
 		},
 	}
 
-	result := formatForDisplay(entries)
+	fv := item.FilterValue()
 
-	var parentLine, childLine string
-	for _, line := range result {
-		if strings.HasPrefix(line, "parent-session\t") {
-			parentLine = line
-		}
-		if strings.HasPrefix(line, "child-session\t") {
-			childLine = line
-		}
+	if fv == "" {
+		t.Error("FilterValue should not be empty")
 	}
-
-	if parentLine == "" {
-		t.Fatal("parent-session not found")
+	if !contains(fv, "my-project") {
+		t.Error("FilterValue should contain project")
 	}
-	if childLine == "" {
-		t.Fatal("child-session not found")
+	if !contains(fv, "Test summary") {
+		t.Error("FilterValue should contain summary")
 	}
-
-	if strings.Contains(parentLine, "↳") {
-		t.Error("parent session should NOT have child indicator")
-	}
-	if !strings.Contains(childLine, "↳") {
-		t.Errorf("child session should have ↳ indicator, got: %s", childLine)
+	if !contains(fv, "abc-123") {
+		t.Error("FilterValue should contain session ID")
 	}
 }
 
-func TestFormatForDisplay_DateHeaders(t *testing.T) {
-	entries := []cache.Entry{
-		{
-			SessionID: "session-day1",
-			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-			Project:   "project",
-			Summary:   "Day 1",
-			ParentSID: "",
+func TestSessionItem_Title(t *testing.T) {
+	// Regular session
+	item := SessionItem{
+		entry: cache.Entry{
+			Date:    time.Date(2025, 1, 15, 14, 30, 0, 0, time.UTC),
+			Project: "test-project",
 		},
-		{
-			SessionID: "session-day2",
-			Date:      time.Date(2025, 1, 16, 10, 0, 0, 0, time.UTC),
-			Project:   "project",
-			Summary:   "Day 2",
-			ParentSID: "",
-		},
+		isPinned: false,
 	}
 
-	result := formatForDisplay(entries)
-
-	headerCount := 0
-	for _, line := range result {
-		if strings.HasPrefix(line, "---HEADER---") {
-			headerCount++
-		}
+	title := item.Title()
+	if !contains(title, "14:30") {
+		t.Errorf("Title should contain time, got: %s", title)
+	}
+	if !contains(title, "test-project") {
+		t.Errorf("Title should contain project, got: %s", title)
 	}
 
-	if headerCount != 2 {
-		t.Errorf("expected 2 date headers, got %d", headerCount)
+	// Pinned session
+	item.isPinned = true
+	title = item.Title()
+	if !contains(title, "*") {
+		t.Errorf("Pinned session should have star indicator, got: %s", title)
+	}
+
+	// Child session
+	item.isPinned = false
+	item.entry.ParentSID = "parent-123"
+	title = item.Title()
+	if !contains(title, "  ") {
+		t.Errorf("Child session should be indented, got: %s", title)
 	}
 }
 
-func TestFormatForDisplay_OrphanedChildStillHasIndicator(t *testing.T) {
-	entries := []cache.Entry{
-		{
-			SessionID: "root-session",
-			Date:      time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-			Project:   "project",
-			Summary:   "Root",
-			ParentSID: "",
-		},
-		{
-			SessionID: "orphan-child",
-			Date:      time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
-			Project:   "project",
-			Summary:   "Orphan",
-			ParentSID: "deleted-parent",
-		},
+func TestPins_ToggleAndPersistence(t *testing.T) {
+	// Create temp dir
+	tmpDir := t.TempDir()
+
+	pins := NewPins(tmpDir)
+
+	// Toggle on
+	result := pins.Toggle("session-1")
+	if !result {
+		t.Error("Toggle should return true when pinning")
+	}
+	if !pins.IsPinned("session-1") {
+		t.Error("Session should be pinned")
+	}
+	if pins.Count() != 1 {
+		t.Errorf("Count should be 1, got %d", pins.Count())
 	}
 
-	result := formatForDisplay(entries)
-
-	var orphanLine string
-	for _, line := range result {
-		if strings.HasPrefix(line, "orphan-child\t") {
-			orphanLine = line
-		}
+	// Toggle off
+	result = pins.Toggle("session-1")
+	if result {
+		t.Error("Toggle should return false when unpinning")
 	}
-
-	if orphanLine == "" {
-		t.Fatal("orphan-child not found")
+	if pins.IsPinned("session-1") {
+		t.Error("Session should not be pinned")
 	}
-
-	if !strings.Contains(orphanLine, "↳") {
-		t.Errorf("orphan child should still have ↳ indicator, got: %s", orphanLine)
+	if pins.Count() != 0 {
+		t.Errorf("Count should be 0, got %d", pins.Count())
 	}
 }
 
-func TestFormatForDisplay_EmptyEntries(t *testing.T) {
-	result := formatForDisplay(nil)
-	if result != nil {
-		t.Errorf("expected nil for empty entries, got %v", result)
+func TestPins_SaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create and save pins
+	pins1 := NewPins(tmpDir)
+	pins1.Toggle("session-a")
+	pins1.Toggle("session-b")
+	if err := pins1.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
 	}
 
-	result = formatForDisplay([]cache.Entry{})
-	if result != nil {
-		t.Errorf("expected nil for empty slice, got %v", result)
+	// Verify file exists
+	pinsFile := filepath.Join(tmpDir, "pinned-sessions.txt")
+	if _, err := os.Stat(pinsFile); os.IsNotExist(err) {
+		t.Fatal("Pins file should exist after save")
+	}
+
+	// Load into new instance
+	pins2 := NewPins(tmpDir)
+	if err := pins2.Load(); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if !pins2.IsPinned("session-a") {
+		t.Error("session-a should be pinned after load")
+	}
+	if !pins2.IsPinned("session-b") {
+		t.Error("session-b should be pinned after load")
+	}
+	if pins2.Count() != 2 {
+		t.Errorf("Count should be 2 after load, got %d", pins2.Count())
 	}
 }
 
-func TestFormatForDisplay_PreservesOrder(t *testing.T) {
-	entries := []cache.Entry{
-		{SessionID: "first", Date: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC), Project: "p", Summary: "First"},
-		{SessionID: "second", Date: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC), Project: "p", Summary: "Second"},
-		{SessionID: "third", Date: time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC), Project: "p", Summary: "Third"},
+func TestPins_LoadNonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	pins := NewPins(tmpDir)
+
+	// Should not error on missing file
+	if err := pins.Load(); err != nil {
+		t.Errorf("Load should not error on missing file: %v", err)
 	}
+	if pins.Count() != 0 {
+		t.Errorf("Count should be 0 for missing file, got %d", pins.Count())
+	}
+}
 
-	result := formatForDisplay(entries)
+func TestDefaultKeyMap(t *testing.T) {
+	km := DefaultKeyMap()
 
-	var indices []int
-	for i, line := range result {
-		if strings.HasPrefix(line, "first\t") {
-			indices = append(indices, i)
-		} else if strings.HasPrefix(line, "second\t") {
-			indices = append(indices, i)
-		} else if strings.HasPrefix(line, "third\t") {
-			indices = append(indices, i)
+	// Check that bindings are defined
+	if len(km.Up.Keys()) == 0 {
+		t.Error("Up keys should be defined")
+	}
+	if len(km.Down.Keys()) == 0 {
+		t.Error("Down keys should be defined")
+	}
+	if len(km.Select.Keys()) == 0 {
+		t.Error("Select keys should be defined")
+	}
+	if len(km.Quit.Keys()) == 0 {
+		t.Error("Quit keys should be defined")
+	}
+}
+
+func TestKeyMap_ShortHelp(t *testing.T) {
+	km := DefaultKeyMap()
+	help := km.ShortHelp()
+
+	if len(help) == 0 {
+		t.Error("ShortHelp should return bindings")
+	}
+}
+
+func TestKeyMap_FullHelp(t *testing.T) {
+	km := DefaultKeyMap()
+	help := km.FullHelp()
+
+	if len(help) == 0 {
+		t.Error("FullHelp should return binding groups")
+	}
+	for i, group := range help {
+		if len(group) == 0 {
+			t.Errorf("FullHelp group %d should not be empty", i)
 		}
 	}
+}
 
-	if len(indices) != 3 {
-		t.Fatalf("expected 3 sessions, found %d", len(indices))
-	}
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
 
-	if indices[0] > indices[1] || indices[1] > indices[2] {
-		t.Errorf("sessions not in expected order: %v", indices)
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
+	return false
 }
