@@ -23,6 +23,7 @@ const (
 	ActionBranch
 	ActionExport
 	ActionCopyMD
+	ActionOpen
 	ActionCancel
 )
 
@@ -60,12 +61,13 @@ func Run(cfg Config) (*Result, error) {
 	rand.Seed(time.Now().UnixNano())
 	port := 10000 + rand.Intn(50000)
 
-	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-b=branch  ctrl-r=refresh  ctrl-a=activity"
+	keybinds := "enter=resume  ctrl-o=export  ctrl-y=copy-md  ctrl-e=open  ctrl-b=branch  ctrl-r=refresh  ctrl-a=activity"
 	sessionCount := len(entries)
 	header := fmt.Sprintf("[%d sessions] %s", sessionCount, keybinds)
 	loadingHeader := fmt.Sprintf("[Loading...] %s", keybinds)
 	exportedHeader := fmt.Sprintf("[Exported!] %s", keybinds)
 	copiedHeader := fmt.Sprintf("[Copied to clipboard!] %s", keybinds)
+	openedHeader := fmt.Sprintf("[Opened in VS Code!] %s", keybinds)
 
 	previewCmd := fmt.Sprintf("%s preview {1}", cfg.BinPath)
 	activityCmd := fmt.Sprintf("%s activity-preview", cfg.BinPath)
@@ -84,6 +86,7 @@ func Run(cfg Config) (*Result, error) {
 	resetCmd := fmt.Sprintf("%s reset-header %d '%s'", cfg.BinPath, port, header)
 	exportCmd := fmt.Sprintf("%s export {1} && %s &", cfg.BinPath, resetCmd)
 	copyMDCmd := fmt.Sprintf("%s copy-md {1} && %s", cfg.BinPath, resetCmd)
+	openCmd := fmt.Sprintf("%s open {1} && %s &", cfg.BinPath, resetCmd)
 
 	args := []string{
 		"--delimiter=\t",
@@ -102,8 +105,9 @@ func Run(cfg Config) (*Result, error) {
 		fmt.Sprintf("--bind=ctrl-r:reload(%s)", rebuildWithCount),
 		fmt.Sprintf("--bind=ctrl-o:execute-silent(%s)+change-header(%s)", exportCmd, exportedHeader),
 		fmt.Sprintf("--bind=ctrl-y:execute-silent(%s)+change-header(%s)", copyMDCmd, copiedHeader),
+		fmt.Sprintf("--bind=ctrl-e:execute-silent(%s)+change-header(%s)", openCmd, openedHeader),
 		fmt.Sprintf("--bind=ctrl-a:transform:%s", activityToggle),
-		"--expect=enter,ctrl-b",
+		"--expect=enter,ctrl-b,ctrl-e",
 	}
 
 	cmd := exec.Command("fzf", args...)
@@ -204,6 +208,8 @@ func parseResult(output []byte, adapter adapters.Adapter) (*Result, error) {
 		result.Action = ActionExport
 	case "ctrl-y":
 		result.Action = ActionCopyMD
+	case "ctrl-e":
+		result.Action = ActionOpen
 	default:
 		result.Action = ActionResume
 	}
