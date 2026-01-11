@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -78,6 +79,7 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(false)
 	l.DisableQuitKeybindings()
+	l.Paginator.Type = paginator.Arabic // Show "1/5" instead of dots
 
 	// Create preview viewport
 	vp := viewport.New(0, 0)
