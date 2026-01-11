@@ -560,12 +560,13 @@ func (m *Model) updateListItems() {
 
 // applyFilters filters sessions based on current filter mode
 func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
-	if m.filterMode == FilterNone || len(sessions) == 0 {
-		return sessions // Already a copy from updateListItems
+	if m.filterMode == FilterNone || m.filterMode == FilterHighCost || len(sessions) == 0 {
+		// FilterHighCost currently shows all (cost data not in cache)
+		return sessions
 	}
 
-	var filtered []cache.Entry
 	now := sessions[0].Date // Use most recent session date as reference
+	var filtered []cache.Entry
 
 	for _, entry := range sessions {
 		switch m.filterMode {
@@ -582,10 +583,6 @@ func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
 			if entry.Project == m.filterValue {
 				filtered = append(filtered, entry)
 			}
-		case FilterHighCost:
-			filtered = append(filtered, entry)
-		default:
-			filtered = append(filtered, entry)
 		}
 	}
 

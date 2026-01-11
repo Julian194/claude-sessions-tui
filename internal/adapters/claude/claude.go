@@ -99,7 +99,6 @@ func (a *Adapter) ListSessions() ([]string, error) {
 			base := filepath.Base(path)
 			rawID := strings.TrimSuffix(base, ".jsonl")
 
-
 			// Create unique ID - for agent sessions in subagents/ dir, include parent session
 			id := rawID
 			dir := filepath.Dir(path)
@@ -153,18 +152,11 @@ func (a *Adapter) GetSessionFile(id string) string {
 	}
 	a.pathsMu.RUnlock()
 
-	// Parse composite ID for agent sessions
-	var searchPattern string
+	// Parse composite ID for agent sessions (parent-session-id/agent-xxx)
+	searchPattern := id + ".jsonl"
 	if strings.Contains(id, "/") {
-		// Composite ID: parent-session-id/agent-xxx
 		parts := strings.SplitN(id, "/", 2)
-		if len(parts) == 2 {
-			searchPattern = parts[1] + ".jsonl"
-		} else {
-			searchPattern = id + ".jsonl"
-		}
-	} else {
-		searchPattern = id + ".jsonl"
+		searchPattern = parts[1] + ".jsonl"
 	}
 
 	// Cache miss - search for the session file across all project directories
