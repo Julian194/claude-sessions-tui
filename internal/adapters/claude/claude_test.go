@@ -83,6 +83,10 @@ func TestExtractMeta(t *testing.T) {
 	if meta.Summary != "Refactoring authentication module" {
 		t.Errorf("Summary = %q, want %q", meta.Summary, "Refactoring authentication module")
 	}
+	// Project should be extracted from cwd field in session records
+	if meta.Project != "my-app" {
+		t.Errorf("Project = %q, want %q (from cwd)", meta.Project, "my-app")
+	}
 }
 
 func TestExtractMeta_NoSummary(t *testing.T) {
@@ -96,6 +100,10 @@ func TestExtractMeta_NoSummary(t *testing.T) {
 	// Should fall back to first user message
 	if meta.Summary != "Hello" {
 		t.Errorf("Summary = %q, want %q", meta.Summary, "Hello")
+	}
+	// Project extracted from cwd: /Users/test/code
+	if meta.Project != "code" {
+		t.Errorf("Project = %q, want %q (from cwd)", meta.Project, "code")
 	}
 }
 
@@ -243,11 +251,15 @@ func TestResumeCmd(t *testing.T) {
 }
 
 func TestExtractProject(t *testing.T) {
+	// extractProject is now a fallback - primary project name comes from session cwd
+	// This tests the path-based fallback when cwd is not available
 	tests := []struct {
 		path string
 		want string
 	}{
-		{"/home/user/.claude/projects/-Users-julian-code-myapp/session.jsonl", "code/myapp"},
+		// Encoded paths return last decoded component (best effort)
+		{"/home/user/.claude/projects/-Users-julian-code-myapp/session.jsonl", "myapp"},
+		// Simple project name stays as-is
 		{"/home/user/.claude/projects/simple-project/session.jsonl", "simple-project"},
 	}
 

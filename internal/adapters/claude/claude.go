@@ -279,7 +279,7 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	}
 
 	// Extract metadata
-	project := extractProject(path)
+	project := ""
 	summary := ""
 	parentSID := ""
 
@@ -288,7 +288,7 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 		parentSID = records[0].SessionID
 	}
 
-	// Extract summary and branch info
+	// Extract summary, branch info, and working directory
 	for _, r := range records {
 		if r.Type == "summary" && summary == "" {
 			summary = r.Summary
@@ -296,6 +296,15 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 		if r.Type == "branch" && r.ParentSession != "" {
 			parentSID = r.ParentSession
 		}
+		if r.Cwd != "" && project == "" {
+			// Use the actual working directory for a clean project name
+			project = filepath.Base(r.Cwd)
+		}
+	}
+
+	// Fallback to path-based extraction if no cwd found
+	if project == "" {
+		project = extractProject(path)
 	}
 
 	// Fallback to first user message if no summary
@@ -751,20 +760,19 @@ func extractProject(path string) string {
 	// For agent sessions, go up to the project directory
 	if project == "subagents" {
 		// Go up two levels: subagents -> parent-session -> project
-		parentDir := filepath.Dir(dir)       // parent-session dir
+		parentDir := filepath.Dir(dir)        // parent-session dir
 		projectDir := filepath.Dir(parentDir) // project dir
 		project = filepath.Base(projectDir)
 	}
 
-	// Claude encodes full paths as project names: -Users-julian-code-foo
-	// Convert back to readable format: code/foo
-	re := regexp.MustCompile(`^-Users-[^-]+-`)
-	if re.MatchString(project) {
-		// This is a path-encoded project name, convert dashes to slashes
-		project = re.ReplaceAllString(project, "")
-		project = strings.ReplaceAll(project, "-", "/")
+	// Claude encodes full paths as project names: -Users-julian-code-foo or -home-user-code-foo
+	// Just extract the last directory component for a clean display
+	if strings.HasPrefix(project, "-") {
+		// Decode: replace dashes with slashes, strip leading dash
+		decoded := strings.ReplaceAll(project[1:], "-", "/")
+		// Return just the last component (the actual project directory)
+		project = filepath.Base(decoded)
 	}
-	// Otherwise keep original name (e.g., "my-project" stays as-is)
 
 	return project
 }

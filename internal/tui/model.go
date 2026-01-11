@@ -125,7 +125,7 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Sessions"
-	l.SetShowStatusBar(true)
+	l.SetShowStatusBar(false) // We have our own status bar
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(false)
 	l.DisableQuitKeybindings()
