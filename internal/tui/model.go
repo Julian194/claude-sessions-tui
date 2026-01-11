@@ -567,10 +567,12 @@ func (m *Model) updateListItems() {
 
 	// Try to re-select the previously selected session
 	selectedIndex := -1
+	newSelectedID := ""
 	if currentID != "" {
 		for i, item := range items {
 			if si, ok := item.(SessionItem); ok && si.entry.SessionID == currentID {
 				selectedIndex = i
+				newSelectedID = currentID
 				break
 			}
 		}
@@ -579,8 +581,9 @@ func (m *Model) updateListItems() {
 	// Fall back to first session if previous selection not found
 	if selectedIndex < 0 {
 		for i, item := range items {
-			if _, ok := item.(SessionItem); ok {
+			if si, ok := item.(SessionItem); ok {
 				selectedIndex = i
+				newSelectedID = si.entry.SessionID
 				break
 			}
 		}
@@ -589,7 +592,11 @@ func (m *Model) updateListItems() {
 	if selectedIndex >= 0 {
 		m.list.Select(selectedIndex)
 	}
-	m.updatePreview()
+
+	// Only update preview if selection changed (avoid expensive I/O on expand/collapse)
+	if newSelectedID != currentID {
+		m.updatePreview()
+	}
 }
 
 func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {

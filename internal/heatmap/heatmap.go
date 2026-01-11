@@ -74,9 +74,15 @@ func Render(activity map[string]int, maxWeeks int, year int) string {
 
 	totalWeeks := int(end.Sub(start).Hours()/24/7) + 1
 
-	// Limit to maxWeeks, showing from start of year
+	// Limit to maxWeeks
 	weeks := totalWeeks
 	if weeks > maxWeeks {
+		// For past years: show END of year (where data is)
+		// For current year: show START of year (up to today)
+		if year < today.Year() {
+			startWeekOffset := weeks - maxWeeks
+			start = start.AddDate(0, 0, startWeekOffset*7)
+		}
 		weeks = maxWeeks
 	}
 

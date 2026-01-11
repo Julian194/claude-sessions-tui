@@ -88,14 +88,15 @@ func (m *Model) updateLayout() {
 
 // updatePreview updates the preview pane content
 func (m *Model) updatePreview() {
-	item := m.getSelectedSession()
-	if item == nil {
-		m.preview.SetContent(dimItemStyle.Render("No session selected"))
+	// Activity heatmap doesn't need a selected session
+	if m.showActivity {
+		m.preview.SetContent(heatmap.RenderFromCache(m.sessions, m.preview.Width, m.activityYear))
 		return
 	}
 
-	if m.showActivity {
-		m.preview.SetContent(heatmap.RenderFromCache(m.sessions, m.preview.Width, m.activityYear))
+	item := m.getSelectedSession()
+	if item == nil {
+		m.preview.SetContent(dimItemStyle.Render("No session selected"))
 		return
 	}
 

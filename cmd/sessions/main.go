@@ -211,7 +211,7 @@ func runExport(adapter adapters.Adapter, sid string) error {
 	models, _ := adapter.GetModels(sid)
 	html := export.ToHTML(messages, info, models)
 
-	filename := fmt.Sprintf("/tmp/session-%s.html", shortID(sid))
+	filename := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s.html", shortID(sid)))
 	if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
 		return err
 	}
@@ -220,20 +220,18 @@ func runExport(adapter adapters.Adapter, sid string) error {
 
 	// Open in browser (cross-platform)
 	switch {
-	case fileExists("/usr/bin/open"): // macOS
+	case commandExists("open"): // macOS
 		exec.Command("open", filename).Start()
 	case commandExists("xdg-open"): // Linux
 		exec.Command("xdg-open", filename).Start()
 	case commandExists("wslview"): // WSL
-		exec.Command("wslview", filename).Start()
+		// Convert Unix path to Windows path for WSL
+		if winPath, err := exec.Command("wslpath", "-w", filename).Output(); err == nil {
+			exec.Command("wslview", strings.TrimSpace(string(winPath))).Start()
+		}
 	}
 
 	return nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func commandExists(cmd string) bool {
@@ -409,7 +407,7 @@ func formatJSONL(inputPath string, shortID string) (string, error) {
 		formatted = append(formatted, string(pretty))
 	}
 
-	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.jsonl", shortID)
+	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s-formatted.jsonl", shortID))
 	if err := os.WriteFile(outputPath, []byte(strings.Join(formatted, "\n\n")), 0644); err != nil {
 		return "", err
 	}
@@ -488,7 +486,7 @@ func formatJSON(inputPath string, shortID string) (string, error) {
 		return "", err
 	}
 
-	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.json", shortID)
+	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s-formatted.json", shortID))
 	if err := os.WriteFile(outputPath, output, 0644); err != nil {
 		return "", err
 	}

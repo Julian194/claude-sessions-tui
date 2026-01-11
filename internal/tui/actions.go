@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -41,18 +43,32 @@ func (m Model) exportHTML(sid string) tea.Cmd {
 		if len(shortID) > 8 {
 			shortID = shortID[:8]
 		}
-		filename := fmt.Sprintf("/tmp/session-%s.html", shortID)
+		filename := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s.html", shortID))
 		if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
 			return exportMsg{err: err}
 		}
 
-		// Open in browser
-		if cmd, err := exec.LookPath("xdg-open"); err == nil {
-			exec.Command(cmd, filename).Start()
+		// Open in browser (cross-platform)
+		switch {
+		case commandExists("open"): // macOS
+			exec.Command("open", filename).Start()
+		case commandExists("xdg-open"): // Linux
+			exec.Command("xdg-open", filename).Start()
+		case commandExists("wslview"): // WSL
+			// Convert Unix path to Windows path for WSL
+			winPath, err := exec.Command("wslpath", "-w", filename).Output()
+			if err == nil {
+				exec.Command("wslview", strings.TrimSpace(string(winPath))).Start()
+			}
 		}
 
 		return exportMsg{filename: filename}
 	}
+}
+
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
 }
 
 // copyMarkdown copies a session as markdown to clipboard
@@ -69,20 +85,23 @@ func (m Model) copyMarkdown(sid string) tea.Cmd {
 
 		// Write to temp file first (more reliable on Wayland)
 		// Note: don't delete - wl-copy forks and needs the file
-		tmpFile := "/tmp/claude-session-clipboard.md"
+		tmpFile := filepath.Join(os.TempDir(), "claude-session-clipboard.md")
 		if err := os.WriteFile(tmpFile, []byte(md), 0644); err != nil {
 			return copyMsg{err: err}
 		}
 
 		// Find clipboard tool and copy from file
 		var clipCmd *exec.Cmd
-		if _, err := exec.LookPath("wl-copy"); err == nil {
-			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("wl-copy < %s", tmpFile))
-		} else if _, err := exec.LookPath("xclip"); err == nil {
-			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xclip -selection clipboard < %s", tmpFile))
-		} else if _, err := exec.LookPath("pbcopy"); err == nil {
+		switch {
+		case commandExists("pbcopy"): // macOS
 			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("pbcopy < %s", tmpFile))
-		} else {
+		case commandExists("wl-copy"): // Wayland
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("wl-copy < %s", tmpFile))
+		case commandExists("xclip"): // X11
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xclip -selection clipboard < %s", tmpFile))
+		case commandExists("xsel"): // X11 alternative
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xsel --clipboard --input < %s", tmpFile))
+		default:
 			return copyMsg{err: fmt.Errorf("no clipboard tool found")}
 		}
 
