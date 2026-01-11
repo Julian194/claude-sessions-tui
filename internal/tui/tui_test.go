@@ -9,6 +9,45 @@ import (
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
 )
 
+func TestDateHeaderItem(t *testing.T) {
+	header := DateHeaderItem{date: "Today, Jan 11"}
+
+	if header.Title() != "─── Today, Jan 11 ───" {
+		t.Errorf("Title should be formatted with dashes, got: %s", header.Title())
+	}
+	if header.Description() != "" {
+		t.Error("Description should be empty")
+	}
+	if header.FilterValue() != "" {
+		t.Error("FilterValue should be empty (not searchable)")
+	}
+}
+
+func TestFormatDateHeader(t *testing.T) {
+	now := time.Now()
+	today := now.Format("Jan 2")
+	yesterday := now.AddDate(0, 0, -1).Format("Jan 2")
+
+	tests := []struct {
+		name     string
+		input    time.Time
+		contains string
+	}{
+		{"today", now, "Today, " + today},
+		{"yesterday", now.AddDate(0, 0, -1), "Yesterday, " + yesterday},
+		{"older", now.AddDate(0, 0, -5), now.AddDate(0, 0, -5).Format("Mon, Jan 2")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDateHeader(tt.input)
+			if result != tt.contains {
+				t.Errorf("formatDateHeader(%v) = %q, want %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
 func TestSessionItem_FilterValue(t *testing.T) {
 	item := SessionItem{
 		entry: cache.Entry{
@@ -184,6 +223,147 @@ func TestKeyMap_FullHelp(t *testing.T) {
 		if len(group) == 0 {
 			t.Errorf("FullHelp group %d should not be empty", i)
 		}
+	}
+}
+
+func TestSessionItem_ParentTitle(t *testing.T) {
+	// Parent with children, collapsed
+	item := SessionItem{
+		entry: cache.Entry{
+			Date:    time.Date(2025, 1, 15, 14, 30, 0, 0, time.UTC),
+			Project: "test-project",
+		},
+		isParent:   true,
+		isExpanded: false,
+		childCount: 3,
+	}
+
+	title := item.Title()
+	if !contains(title, "▶") {
+		t.Errorf("Collapsed parent should have ▶, got: %s", title)
+	}
+	if !contains(title, "(3)") {
+		t.Errorf("Collapsed parent should show child count, got: %s", title)
+	}
+
+	// Parent expanded
+	item.isExpanded = true
+	title = item.Title()
+	if !contains(title, "▼") {
+		t.Errorf("Expanded parent should have ▼, got: %s", title)
+	}
+	if contains(title, "(3)") {
+		t.Errorf("Expanded parent should not show child count, got: %s", title)
+	}
+}
+
+func TestApplyFilters(t *testing.T) {
+	now := time.Now()
+	sessions := []cache.Entry{
+		{SessionID: "1", Date: now, Project: "project-a"},
+		{SessionID: "2", Date: now.AddDate(0, 0, -1), Project: "project-b"},
+		{SessionID: "3", Date: now.AddDate(0, 0, -10), Project: "project-a"},
+	}
+
+	m := &Model{filterMode: FilterNone}
+
+	// No filter - return all
+	result := m.applyFilters(sessions)
+	if len(result) != 3 {
+		t.Errorf("FilterNone should return all sessions, got %d", len(result))
+	}
+
+	// Today filter
+	m.filterMode = FilterToday
+	result = m.applyFilters(sessions)
+	if len(result) != 1 {
+		t.Errorf("FilterToday should return 1 session, got %d", len(result))
+	}
+
+	// Week filter
+	m.filterMode = FilterWeek
+	result = m.applyFilters(sessions)
+	if len(result) != 2 {
+		t.Errorf("FilterWeek should return 2 sessions, got %d", len(result))
+	}
+
+	// Project filter
+	m.filterMode = FilterProject
+	m.filterValue = "project-a"
+	result = m.applyFilters(sessions)
+	if len(result) != 2 {
+		t.Errorf("FilterProject should return 2 sessions, got %d", len(result))
+	}
+}
+
+func TestFilterMode(t *testing.T) {
+	// Test that FilterMode constants are distinct
+	modes := []FilterMode{FilterNone, FilterProject, FilterToday, FilterWeek, FilterHighCost}
+	seen := make(map[FilterMode]bool)
+	for _, mode := range modes {
+		if seen[mode] {
+			t.Errorf("Duplicate FilterMode value: %v", mode)
+		}
+		seen[mode] = true
+	}
+}
+
+func TestApplyFilters_Empty(t *testing.T) {
+	m := &Model{filterMode: FilterToday}
+
+	// Empty sessions should return empty
+	result := m.applyFilters([]cache.Entry{})
+	if len(result) != 0 {
+		t.Errorf("Empty input should return empty, got %d", len(result))
+	}
+}
+
+func TestApplyFilters_HighCost(t *testing.T) {
+	m := &Model{filterMode: FilterHighCost}
+	sessions := []cache.Entry{{SessionID: "1"}, {SessionID: "2"}}
+
+	// HighCost returns all (not implemented yet)
+	result := m.applyFilters(sessions)
+	if len(result) != 2 {
+		t.Errorf("FilterHighCost should return all sessions, got %d", len(result))
+	}
+}
+
+func TestApplyFilters_NoMatches(t *testing.T) {
+	now := time.Now()
+	m := &Model{filterMode: FilterProject, filterValue: "nonexistent"}
+	sessions := []cache.Entry{
+		{SessionID: "1", Date: now, Project: "project-a"},
+	}
+
+	// No matches should return original
+	result := m.applyFilters(sessions)
+	if len(result) != 1 {
+		t.Errorf("No matches should return original, got %d", len(result))
+	}
+}
+
+func TestClearMessageAfter(t *testing.T) {
+	cmd := clearMessageAfter(time.Millisecond)
+	if cmd == nil {
+		t.Error("clearMessageAfter should return a command")
+	}
+}
+
+func TestRequestPreviewUpdate(t *testing.T) {
+	cmd := requestPreviewUpdate(5)
+	if cmd == nil {
+		t.Error("requestPreviewUpdate should return a command")
+	}
+}
+
+func TestRenderHelpOverlay(t *testing.T) {
+	result := renderHelpOverlay(80, 24)
+	if result == "" {
+		t.Error("renderHelpOverlay should return content")
+	}
+	if !contains(result, "Keyboard Shortcuts") {
+		t.Error("Help overlay should contain 'Keyboard Shortcuts'")
 	}
 }
 
