@@ -299,7 +299,7 @@ func TestApplyFilters(t *testing.T) {
 
 func TestFilterMode(t *testing.T) {
 	// Test that FilterMode constants are distinct
-	modes := []FilterMode{FilterNone, FilterProject, FilterToday, FilterWeek, FilterHighCost}
+	modes := []FilterMode{FilterNone, FilterProject, FilterToday, FilterWeek}
 	seen := make(map[FilterMode]bool)
 	for _, mode := range modes {
 		if seen[mode] {
@@ -316,17 +316,6 @@ func TestApplyFilters_Empty(t *testing.T) {
 	result := m.applyFilters([]cache.Entry{})
 	if len(result) != 0 {
 		t.Errorf("Empty input should return empty, got %d", len(result))
-	}
-}
-
-func TestApplyFilters_HighCost(t *testing.T) {
-	m := &Model{filterMode: FilterHighCost}
-	sessions := []cache.Entry{{SessionID: "1"}, {SessionID: "2"}}
-
-	// HighCost returns all (not implemented yet)
-	result := m.applyFilters(sessions)
-	if len(result) != 2 {
-		t.Errorf("FilterHighCost should return all sessions, got %d", len(result))
 	}
 }
 

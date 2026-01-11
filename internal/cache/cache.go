@@ -19,7 +19,8 @@ type Entry struct {
 	Date      time.Time
 	Project   string
 	Summary   string
-	ParentSID string // Parent session ID for branches
+	ParentSID string  // Parent session ID for branches
+	Cost      float64 // Session cost in USD
 }
 
 // Deprecated: ID is deprecated, use SessionID instead
@@ -66,13 +67,13 @@ func Write(path string, entries []Entry) error {
 		summary := escapeTSV(e.Summary)
 		project := escapeTSV(e.Project)
 
-		// TSV format: sid, date, project, summary, mtime, parent_sid, full_date
+		// TSV format: sid, date, project, summary, mtime, parent_sid, full_date, cost
 		parentSID := e.ParentSID
 		if parentSID == "" {
 			parentSID = "-"
 		}
 
-		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%s\t%s\t%.4f\n",
 			e.SessionID,
 			e.Date.Format("15:04"),
 			project,
@@ -80,6 +81,7 @@ func Write(path string, entries []Entry) error {
 			e.Date.Unix(),
 			parentSID,
 			e.Date.Format("2006-01-02"),
+			e.Cost,
 		)
 		if _, err := f.WriteString(line); err != nil {
 			return err
@@ -129,12 +131,19 @@ func Read(path string) ([]Entry, error) {
 			parentSID = parts[5]
 		}
 
+		// Parse cost if available (column 8)
+		var cost float64
+		if len(parts) >= 8 {
+			fmt.Sscanf(parts[7], "%f", &cost)
+		}
+
 		entries = append(entries, Entry{
 			SessionID: parts[0],
 			Date:      date,
 			Project:   unescapeTSV(parts[2]),
 			Summary:   unescapeTSV(parts[3]),
 			ParentSID: parentSID,
+			Cost:      cost,
 		})
 	}
 
@@ -255,6 +264,13 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 					results <- metaResult{err: err}
 					continue
 				}
+
+				// Fetch cost from stats
+				var cost float64
+				if stats, err := adapter.GetStats(j.id); err == nil && stats != nil {
+					cost = stats.Cost
+				}
+
 				results <- metaResult{
 					entry: Entry{
 						SessionID: meta.ID,
@@ -262,6 +278,7 @@ func BuildIncremental(adapter adapters.Adapter, cachePath string, existing []Ent
 						Project:   meta.Project,
 						Summary:   meta.Summary,
 						ParentSID: meta.ParentSID,
+						Cost:      cost,
 					},
 				}
 			}

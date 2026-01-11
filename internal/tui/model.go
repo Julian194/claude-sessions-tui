@@ -23,7 +23,6 @@ const (
 	FilterProject
 	FilterToday
 	FilterWeek
-	FilterHighCost
 )
 
 // Model is the main Bubble Tea model
@@ -298,9 +297,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.FilterWeek):
 		m.toggleFilter(FilterWeek, "This week")
 
-	case key.Matches(msg, m.keys.FilterCost):
-		m.toggleFilter(FilterHighCost, "High cost (>$0.10)")
-
 	case key.Matches(msg, m.keys.FilterProject):
 		if item := m.getSelectedSession(); item != nil {
 			if m.filterMode == FilterProject && m.filterValue == item.entry.Project {
@@ -565,27 +561,22 @@ func (m *Model) updateListItems() {
 
 	m.list.SetItems(items)
 
-	// Try to re-select the previously selected session
+	// Try to re-select the previously selected session, or fall back to first session
 	selectedIndex := -1
 	newSelectedID := ""
-	if currentID != "" {
-		for i, item := range items {
-			if si, ok := item.(SessionItem); ok && si.entry.SessionID == currentID {
-				selectedIndex = i
-				newSelectedID = currentID
-				break
-			}
+	for i, item := range items {
+		si, ok := item.(SessionItem)
+		if !ok {
+			continue
 		}
-	}
-
-	// Fall back to first session if previous selection not found
-	if selectedIndex < 0 {
-		for i, item := range items {
-			if si, ok := item.(SessionItem); ok {
-				selectedIndex = i
-				newSelectedID = si.entry.SessionID
-				break
-			}
+		if si.entry.SessionID == currentID {
+			selectedIndex = i
+			newSelectedID = currentID
+			break
+		}
+		if selectedIndex < 0 {
+			selectedIndex = i
+			newSelectedID = si.entry.SessionID
 		}
 	}
 
@@ -600,7 +591,7 @@ func (m *Model) updateListItems() {
 }
 
 func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
-	if m.filterMode == FilterNone || m.filterMode == FilterHighCost || len(sessions) == 0 {
+	if m.filterMode == FilterNone || len(sessions) == 0 {
 		return sessions
 	}
 

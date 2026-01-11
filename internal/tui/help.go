@@ -22,7 +22,6 @@ const helpContent = `
     1            Today's sessions only
     2            This week's sessions
     3            Current project only
-    4            High cost sessions (>$0.10)
     Esc          Clear active filter
 
   Parent/Child Sessions

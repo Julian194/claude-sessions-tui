@@ -23,7 +23,6 @@ type KeyMap struct {
 	FilterToday   key.Binding
 	FilterWeek    key.Binding
 	FilterProject key.Binding
-	FilterCost    key.Binding
 	FilterClear   key.Binding
 
 	// Toggle
@@ -97,10 +96,6 @@ func DefaultKeyMap() KeyMap {
 		FilterProject: key.NewBinding(
 			key.WithKeys("3"),
 			key.WithHelp("3", "project"),
-		),
-		FilterCost: key.NewBinding(
-			key.WithKeys("4"),
-			key.WithHelp("4", "high cost"),
 		),
 		FilterClear: key.NewBinding(
 			key.WithKeys("esc"),

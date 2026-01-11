@@ -46,8 +46,6 @@ func (m Model) View() string {
 		filterIndicator = " [Today]"
 	case FilterWeek:
 		filterIndicator = " [Week]"
-	case FilterHighCost:
-		filterIndicator = " [$$$]"
 	case FilterProject:
 		filterIndicator = " [" + m.filterValue + "]"
 	}
@@ -55,7 +53,7 @@ func (m Model) View() string {
 		filterIndicator += " [Activity]"
 	}
 
-	helpText := "?:help  enter:resume  p:pin  1-4:filter  ctrl+a:activity  ctrl+o:export  ctrl+y:copy  q:quit"
+	helpText := "?:help  enter:resume  p:pin  1-3:filter  ctrl+a:activity  ctrl+o:export  ctrl+y:copy  q:quit"
 	if m.filterMode != FilterNone {
 		helpText = "esc:clear  " + helpText
 	}
@@ -144,19 +142,9 @@ func (m *Model) updatePreview() {
 		b.WriteString(renderSectionHeader("Stats"))
 		b.WriteString("\n")
 
-		// Cost with color coding
-		costStr := fmt.Sprintf("$%.4f", stats.Cost)
-		var costStyled string
-		switch {
-		case stats.Cost < 0.05:
-			costStyled = costLowStyle.Render(costStr)
-		case stats.Cost < 0.20:
-			costStyled = costMedStyle.Render(costStr)
-		default:
-			costStyled = costHighStyle.Render(costStr)
-		}
+		// Cost
 		b.WriteString(labelStyle.Render("Cost "))
-		b.WriteString(costStyled)
+		b.WriteString(costStyle.Render(fmt.Sprintf("$%.4f", stats.Cost)))
 		b.WriteString("\n")
 
 		// Messages
