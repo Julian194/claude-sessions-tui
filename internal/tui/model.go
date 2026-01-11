@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
+	"github.com/Julian194/claude-sessions-tui/internal/export"
 )
 
 // FilterMode represents the current filter type
@@ -64,16 +67,31 @@ type Model struct {
 	done   bool
 }
 
+// DateHeaderItem is a non-selectable date separator
+type DateHeaderItem struct {
+	date string
+}
+
+func (d DateHeaderItem) Title() string {
+	return "─── " + d.date + " ───"
+}
+
+func (d DateHeaderItem) Description() string {
+	return "" // Empty but still takes up space for consistent height
+}
+
+func (d DateHeaderItem) FilterValue() string {
+	return "" // Not searchable
+}
+
 // SessionItem implements list.Item for cache.Entry
 type SessionItem struct {
-	entry          cache.Entry
-	isPinned       bool
-	isAgent        bool
-	isParent       bool   // Has children
-	isExpanded     bool   // If parent, is it expanded?
-	childCount     int    // Number of children (for parents)
-	showDateHeader bool   // Show date header above this item
-	dateHeader     string // The date string to show
+	entry      cache.Entry
+	isPinned   bool
+	isAgent    bool
+	isParent   bool // Has children
+	isExpanded bool // If parent, is it expanded?
+	childCount int  // Number of children (for parents)
 }
 
 func (s SessionItem) Title() string {
@@ -92,18 +110,10 @@ func (s SessionItem) Title() string {
 		prefix += "★ "
 	}
 	if s.isAgent {
-		prefix = "  ↳ " // Indent children
+		prefix = "  " // Indent children
 	}
 
-	// Show date header or just time
-	var timeStr string
-	if s.showDateHeader {
-		timeStr = s.dateHeader + " " + s.entry.Date.Format("15:04")
-	} else {
-		timeStr = s.entry.Date.Format("15:04")
-	}
-
-	title := prefix + timeStr + " " + s.entry.Project
+	title := prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
 
 	// Show child count for collapsed parents
 	if s.isParent && !s.isExpanded && s.childCount > 0 {
@@ -204,6 +214,109 @@ func (m Model) refreshCache() tea.Cmd {
 	}
 }
 
+// exportMsg is sent when export completes
+type exportMsg struct {
+	filename string
+	err      error
+}
+
+func (m Model) exportHTML(sid string) tea.Cmd {
+	return func() tea.Msg {
+		messages, err := m.adapter.ExportMessages(sid)
+		if err != nil {
+			return exportMsg{err: err}
+		}
+
+		info, err := m.adapter.GetSessionInfo(sid)
+		if err != nil {
+			return exportMsg{err: err}
+		}
+
+		models, _ := m.adapter.GetModels(sid)
+		html := export.ToHTML(messages, info, models)
+
+		shortID := sid
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		filename := fmt.Sprintf("/tmp/session-%s.html", shortID)
+		if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
+			return exportMsg{err: err}
+		}
+
+		// Open in browser
+		if cmd, err := exec.LookPath("xdg-open"); err == nil {
+			exec.Command(cmd, filename).Start()
+		}
+
+		return exportMsg{filename: filename}
+	}
+}
+
+// copyMsg is sent when copy completes
+type copyMsg struct {
+	err error
+}
+
+func (m Model) copyMarkdown(sid string) tea.Cmd {
+	return func() tea.Msg {
+		messages, err := m.adapter.ExportMessages(sid)
+		if err != nil {
+			return copyMsg{err: err}
+		}
+
+		info, _ := m.adapter.GetSessionInfo(sid)
+		models, _ := m.adapter.GetModels(sid)
+		md := export.ToMarkdown(messages, info, models)
+
+		// Write to temp file first (more reliable on Wayland)
+		// Note: don't delete - wl-copy forks and needs the file
+		tmpFile := "/tmp/claude-session-clipboard.md"
+		if err := os.WriteFile(tmpFile, []byte(md), 0644); err != nil {
+			return copyMsg{err: err}
+		}
+
+		// Find clipboard tool and copy from file
+		var clipCmd *exec.Cmd
+		if _, err := exec.LookPath("wl-copy"); err == nil {
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("wl-copy < %s", tmpFile))
+		} else if _, err := exec.LookPath("xclip"); err == nil {
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xclip -selection clipboard < %s", tmpFile))
+		} else if _, err := exec.LookPath("pbcopy"); err == nil {
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("pbcopy < %s", tmpFile))
+		} else {
+			return copyMsg{err: fmt.Errorf("no clipboard tool found")}
+		}
+
+		clipCmd.Env = os.Environ()
+		if err := clipCmd.Run(); err != nil {
+			return copyMsg{err: err}
+		}
+
+		return copyMsg{}
+	}
+}
+
+// clearMessageMsg clears the status message
+type clearMessageMsg struct{}
+
+func clearMessageAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return clearMessageMsg{}
+	})
+}
+
+// previewUpdateMsg triggers a debounced preview update
+type previewUpdateMsg struct {
+	index int // the index that requested this update
+}
+
+func requestPreviewUpdate(index int) tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
+		return previewUpdateMsg{index: index}
+	})
+}
+
 // Update implements tea.Model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -233,6 +346,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = fmt.Sprintf("Refreshed: %d sessions", len(msg.entries))
 		}
 		m.loading = false
+
+	case exportMsg:
+		if msg.err != nil {
+			m.message = "Export failed: " + msg.err.Error()
+		} else {
+			m.message = "Exported: " + msg.filename
+		}
+		return m, clearMessageAfter(3 * time.Second)
+
+	case copyMsg:
+		if msg.err != nil {
+			m.message = "Copy failed: " + msg.err.Error()
+		} else {
+			m.message = "Copied to clipboard!"
+		}
+		return m, clearMessageAfter(3 * time.Second)
+
+	case clearMessageMsg:
+		m.message = ""
+
+	case previewUpdateMsg:
+		// Only update if we're still on the same item (debounce)
+		if m.list.Index() == msg.index {
+			m.updatePreview()
+		}
 
 	case tea.KeyMsg:
 		// Handle quit first
@@ -273,20 +411,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Export):
 			item := m.getSelectedSession()
 			if item != nil {
-				m.result = &Result{
-					SessionID: item.entry.SessionID,
-					Action:    ActionExport,
-				}
-				m.done = true
-				return m, tea.Quit
+				m.message = "Exporting..."
+				return m, m.exportHTML(item.entry.SessionID)
 			}
 
 		case key.Matches(msg, m.keys.CopyMD):
 			item := m.getSelectedSession()
 			if item != nil {
+				m.message = "Copying..."
+				return m, m.copyMarkdown(item.entry.SessionID)
+			}
+
+		case key.Matches(msg, m.keys.Open):
+			item := m.getSelectedSession()
+			if item != nil {
 				m.result = &Result{
 					SessionID: item.entry.SessionID,
-					Action:    ActionCopyMD,
+					Action:    ActionOpen,
 				}
 				m.done = true
 				return m, tea.Quit
@@ -328,15 +469,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.ToggleExpand):
 			item := m.getSelectedSession()
 			if item != nil && item.isParent {
-				// Toggle expand/collapse for parent sessions
 				m.expanded[item.entry.SessionID] = !m.expanded[item.entry.SessionID]
-				if m.expanded[item.entry.SessionID] {
-					m.message = "Expanded"
-				} else {
-					m.message = "Collapsed"
-				}
 				m.updateListItems()
 			}
+			return m, nil // Don't pass to list
+
+		case key.Matches(msg, m.keys.Expand):
+			item := m.getSelectedSession()
+			if item != nil && item.isParent && !m.expanded[item.entry.SessionID] {
+				m.expanded[item.entry.SessionID] = true
+				m.updateListItems()
+			}
+			return m, nil // Don't pass to list
+
+		case key.Matches(msg, m.keys.Collapse):
+			item := m.getSelectedSession()
+			if item != nil && item.isParent && m.expanded[item.entry.SessionID] {
+				m.expanded[item.entry.SessionID] = false
+				m.updateListItems()
+			}
+			return m, nil // Don't pass to list
 
 		// Quick filters
 		case key.Matches(msg, m.keys.FilterToday):
@@ -382,6 +534,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.updateListItems()
 			}
+
+		case key.Matches(msg, m.keys.FilterClear):
+			if m.filterMode != FilterNone {
+				m.filterMode = FilterNone
+				m.message = "Filter cleared"
+				m.updateListItems()
+			}
 		}
 	}
 
@@ -392,9 +551,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
 
-		// Update preview when selection changes
+		// Skip date headers (not selectable)
+		newIndex := m.list.Index()
+		if _, isHeader := m.list.SelectedItem().(DateHeaderItem); isHeader {
+			// Determine direction and skip to next session
+			if newIndex > oldIndex {
+				// Moving down - find next session
+				for i := newIndex + 1; i < len(m.list.Items()); i++ {
+					if _, ok := m.list.Items()[i].(SessionItem); ok {
+						m.list.Select(i)
+						break
+					}
+				}
+			} else {
+				// Moving up - find previous session
+				for i := newIndex - 1; i >= 0; i-- {
+					if _, ok := m.list.Items()[i].(SessionItem); ok {
+						m.list.Select(i)
+						break
+					}
+				}
+			}
+		}
+
+		// Debounced preview update when selection changes
 		if m.list.Index() != oldIndex {
-			m.updatePreview()
+			cmds = append(cmds, requestPreviewUpdate(m.list.Index()))
 		}
 	} else {
 		var cmd tea.Cmd
@@ -474,7 +656,11 @@ func (m Model) View() string {
 		filterIndicator = " [" + m.filterValue + "]"
 	}
 
-	help := helpStyle.Render("enter:resume  space:expand  p:pin  1-4:filter  ctrl+r:refresh  q:quit")
+	helpText := "enter:resume  space:expand  p:pin  1-4:filter  ctrl+o:export  ctrl+y:copy  ctrl+r:refresh  q:quit"
+	if m.filterMode != FilterNone {
+		helpText = "esc:clear  " + helpText
+	}
+	help := helpStyle.Render(helpText)
 	status := statusBarStyle.Render(m.message + filterIndicator)
 	statusBar := lipgloss.JoinHorizontal(lipgloss.Left, status, "  ", help)
 
@@ -537,27 +723,27 @@ func (m *Model) updateListItems() {
 		m.childCount[parentID] = len(children)
 	}
 
-	// Build list items with parent/child structure
+	// Build list items with parent/child structure and date headers
 	var items []list.Item
 	var lastDate string
 	for _, entry := range parentSessions {
 		hasChildren := m.childCount[entry.SessionID] > 0
 		isExpanded := m.expanded[entry.SessionID]
 
-		// Check if we need a date header
+		// Insert date header before first session of each day
 		currentDate := entry.Date.Format("2006-01-02")
-		showHeader := currentDate != lastDate
-		lastDate = currentDate
+		if currentDate != lastDate {
+			items = append(items, DateHeaderItem{date: formatDateHeader(entry.Date)})
+			lastDate = currentDate
+		}
 
 		items = append(items, SessionItem{
-			entry:          entry,
-			isPinned:       m.pins.IsPinned(entry.SessionID),
-			isAgent:        false,
-			isParent:       hasChildren,
-			isExpanded:     isExpanded,
-			childCount:     m.childCount[entry.SessionID],
-			showDateHeader: showHeader,
-			dateHeader:     formatDateHeader(entry.Date),
+			entry:      entry,
+			isPinned:   m.pins.IsPinned(entry.SessionID),
+			isAgent:    false,
+			isParent:   hasChildren,
+			isExpanded: isExpanded,
+			childCount: m.childCount[entry.SessionID],
 		})
 
 		// Add children if parent is expanded
@@ -572,8 +758,38 @@ func (m *Model) updateListItems() {
 		}
 	}
 
+	// Preserve current selection if possible
+	var currentID string
+	if selected := m.getSelectedSession(); selected != nil {
+		currentID = selected.entry.SessionID
+	}
+
 	m.list.SetItems(items)
-	m.list.Select(0) // Ensure we start at top
+
+	// Try to re-select the previously selected session
+	selectedIndex := -1
+	if currentID != "" {
+		for i, item := range items {
+			if si, ok := item.(SessionItem); ok && si.entry.SessionID == currentID {
+				selectedIndex = i
+				break
+			}
+		}
+	}
+
+	// Fall back to first session if previous selection not found
+	if selectedIndex < 0 {
+		for i, item := range items {
+			if _, ok := item.(SessionItem); ok {
+				selectedIndex = i
+				break
+			}
+		}
+	}
+
+	if selectedIndex >= 0 {
+		m.list.Select(selectedIndex)
+	}
 	m.updatePreview()
 }
 
@@ -728,14 +944,10 @@ func formatDateHeader(t time.Time) string {
 
 	switch date {
 	case today:
-		return "Today"
+		return "Today, " + t.Format("Jan 2")
 	case yesterday:
-		return "Yesterday"
+		return "Yesterday, " + t.Format("Jan 2")
 	default:
-		// Show weekday for this week, otherwise month day
-		if now.Sub(t) < 7*24*time.Hour {
-			return t.Format("Mon")
-		}
-		return t.Format("Jan 2")
+		return t.Format("Mon, Jan 2")
 	}
 }

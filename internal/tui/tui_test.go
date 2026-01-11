@@ -59,12 +59,12 @@ func TestSessionItem_Title(t *testing.T) {
 		t.Errorf("Pinned session should have star indicator, got: %s", title)
 	}
 
-	// Agent session
+	// Agent session (indented)
 	item.isPinned = false
 	item.isAgent = true
 	title = item.Title()
-	if !contains(title, "↳") {
-		t.Errorf("Agent session should have arrow indicator, got: %s", title)
+	if title[0:2] != "  " {
+		t.Errorf("Agent session should be indented, got: %s", title)
 	}
 }
 

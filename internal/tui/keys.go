@@ -14,6 +14,7 @@ type KeyMap struct {
 	Select  key.Binding
 	Export  key.Binding
 	CopyMD  key.Binding
+	Open    key.Binding
 	Branch  key.Binding
 	Refresh key.Binding
 	Pin     key.Binding
@@ -23,10 +24,13 @@ type KeyMap struct {
 	FilterWeek    key.Binding
 	FilterProject key.Binding
 	FilterCost    key.Binding
+	FilterClear   key.Binding
 
 	// Toggle
 	ToggleActivity key.Binding
-	ToggleExpand   key.Binding // Expand/collapse parent sessions
+	ToggleExpand   key.Binding // Toggle expand/collapse with space
+	Expand         key.Binding // Expand with right arrow
+	Collapse       key.Binding // Collapse with left arrow
 
 	// Quit
 	Quit key.Binding
@@ -63,6 +67,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+y"),
 			key.WithHelp("ctrl+y", "copy md"),
 		),
+		Open: key.NewBinding(
+			key.WithKeys("ctrl+e"),
+			key.WithHelp("ctrl+e", "open in vscode"),
+		),
 		Branch: key.NewBinding(
 			key.WithKeys("ctrl+b"),
 			key.WithHelp("ctrl+b", "branch"),
@@ -91,16 +99,28 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("4"),
 			key.WithHelp("4", "high cost"),
 		),
+		FilterClear: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "clear filter"),
+		),
 		ToggleActivity: key.NewBinding(
 			key.WithKeys("ctrl+a"),
 			key.WithHelp("ctrl+a", "activity"),
 		),
 		ToggleExpand: key.NewBinding(
-			key.WithKeys(" ", "right"),
+			key.WithKeys(" "),
 			key.WithHelp("space", "expand"),
 		),
+		Expand: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("→/l", "expand"),
+		),
+		Collapse: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("←/h", "collapse"),
+		),
 		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c", "esc"),
+			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
 	}
