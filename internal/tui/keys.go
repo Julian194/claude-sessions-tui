@@ -26,6 +26,7 @@ type KeyMap struct {
 
 	// Toggle
 	ToggleActivity key.Binding
+	ToggleExpand   key.Binding // Expand/collapse parent sessions
 
 	// Quit
 	Quit key.Binding
@@ -93,6 +94,10 @@ func DefaultKeyMap() KeyMap {
 		ToggleActivity: key.NewBinding(
 			key.WithKeys("ctrl+a"),
 			key.WithHelp("ctrl+a", "activity"),
+		),
+		ToggleExpand: key.NewBinding(
+			key.WithKeys(" ", "right"),
+			key.WithHelp("space", "expand"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c", "esc"),

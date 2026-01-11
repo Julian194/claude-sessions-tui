@@ -43,6 +43,11 @@ type Model struct {
 	filterMode   FilterMode
 	filterValue  string // For project filter
 
+	// Parent-child session grouping
+	expanded   map[string]bool          // Which parent sessions are expanded
+	children   map[string][]cache.Entry // Parent ID -> child sessions
+	childCount map[string]int           // Parent ID -> child count
+
 	// Layout
 	width, height int
 
@@ -60,20 +65,41 @@ type Model struct {
 
 // SessionItem implements list.Item for cache.Entry
 type SessionItem struct {
-	entry    cache.Entry
-	isPinned bool
-	isAgent  bool
+	entry      cache.Entry
+	isPinned   bool
+	isAgent    bool
+	isParent   bool // Has children
+	isExpanded bool // If parent, is it expanded?
+	childCount int  // Number of children (for parents)
 }
 
 func (s SessionItem) Title() string {
 	prefix := ""
+
+	// Expand/collapse indicator for parents
+	if s.isParent {
+		if s.isExpanded {
+			prefix = "▼ "
+		} else {
+			prefix = "▶ "
+		}
+	}
+
 	if s.isPinned {
-		prefix = "★ "
+		prefix += "★ "
 	}
 	if s.isAgent {
-		prefix += "↳ "
+		prefix = "  ↳ " // Indent children
 	}
-	return prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
+
+	title := prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
+
+	// Show child count for collapsed parents
+	if s.isParent && !s.isExpanded && s.childCount > 0 {
+		title += fmt.Sprintf(" (%d)", s.childCount)
+	}
+
+	return title
 }
 
 func (s SessionItem) Description() string {
@@ -117,6 +143,9 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 		activePane: "list",
 		keys:       DefaultKeyMap(),
 		filterMode: FilterNone,
+		expanded:   make(map[string]bool),
+		children:   make(map[string][]cache.Entry),
+		childCount: make(map[string]int),
 	}
 }
 
@@ -285,6 +314,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showActivity = !m.showActivity
 			m.updatePreview()
 
+		case key.Matches(msg, m.keys.ToggleExpand):
+			item := m.getSelectedSession()
+			if item != nil && item.isParent {
+				// Toggle expand/collapse for parent sessions
+				m.expanded[item.entry.SessionID] = !m.expanded[item.entry.SessionID]
+				if m.expanded[item.entry.SessionID] {
+					m.message = "Expanded"
+				} else {
+					m.message = "Collapsed"
+				}
+				m.updateListItems()
+			}
+
 		// Quick filters
 		case key.Matches(msg, m.keys.FilterToday):
 			if m.filterMode == FilterToday {
@@ -421,7 +463,7 @@ func (m Model) View() string {
 		filterIndicator = " [" + m.filterValue + "]"
 	}
 
-	help := helpStyle.Render("enter:resume  p:pin  1:today  2:week  3:project  4:cost  ctrl+r:refresh  q:quit")
+	help := helpStyle.Render("enter:resume  space:expand  p:pin  1-4:filter  ctrl+r:refresh  q:quit")
 	status := statusBarStyle.Render(m.message + filterIndicator)
 	statusBar := lipgloss.JoinHorizontal(lipgloss.Left, status, "  ", help)
 
@@ -448,25 +490,67 @@ func (m *Model) updateListItems() {
 	copy(filtered, m.sessions)
 	filtered = m.applyFilters(filtered)
 
-	// Sort sessions: pinned first, then by date (newest first)
-	sort.Slice(filtered, func(i, j int) bool {
-		iPinned := m.pins.IsPinned(filtered[i].SessionID)
-		jPinned := m.pins.IsPinned(filtered[j].SessionID)
+	// Build parent-child relationships
+	m.children = make(map[string][]cache.Entry)
+	m.childCount = make(map[string]int)
+
+	// Separate parent sessions and child sessions
+	var parentSessions []cache.Entry
+	childSessions := make(map[string][]cache.Entry) // parentID -> children
+
+	for _, entry := range filtered {
+		isAgent := entry.ParentSID != "" && entry.ParentSID != "-"
+		if isAgent {
+			childSessions[entry.ParentSID] = append(childSessions[entry.ParentSID], entry)
+		} else {
+			parentSessions = append(parentSessions, entry)
+		}
+	}
+
+	// Sort parent sessions: pinned first, then by date (newest first)
+	sort.Slice(parentSessions, func(i, j int) bool {
+		iPinned := m.pins.IsPinned(parentSessions[i].SessionID)
+		jPinned := m.pins.IsPinned(parentSessions[j].SessionID)
 		if iPinned != jPinned {
 			return iPinned
 		}
-		return filtered[i].Date.After(filtered[j].Date)
+		return parentSessions[i].Date.After(parentSessions[j].Date)
 	})
 
-	// Build list items
-	var items []list.Item
-	for _, entry := range filtered {
-		isAgent := entry.ParentSID != "" && entry.ParentSID != "-"
-		items = append(items, SessionItem{
-			entry:    entry,
-			isPinned: m.pins.IsPinned(entry.SessionID),
-			isAgent:  isAgent,
+	// Sort children by date within each parent
+	for parentID, children := range childSessions {
+		sort.Slice(children, func(i, j int) bool {
+			return children[i].Date.After(children[j].Date)
 		})
+		m.children[parentID] = children
+		m.childCount[parentID] = len(children)
+	}
+
+	// Build list items with parent/child structure
+	var items []list.Item
+	for _, entry := range parentSessions {
+		hasChildren := m.childCount[entry.SessionID] > 0
+		isExpanded := m.expanded[entry.SessionID]
+
+		items = append(items, SessionItem{
+			entry:      entry,
+			isPinned:   m.pins.IsPinned(entry.SessionID),
+			isAgent:    false,
+			isParent:   hasChildren,
+			isExpanded: isExpanded,
+			childCount: m.childCount[entry.SessionID],
+		})
+
+		// Add children if parent is expanded
+		if hasChildren && isExpanded {
+			for _, child := range m.children[entry.SessionID] {
+				items = append(items, SessionItem{
+					entry:    child,
+					isPinned: m.pins.IsPinned(child.SessionID),
+					isAgent:  true,
+				})
+			}
+		}
 	}
 
 	m.list.SetItems(items)
