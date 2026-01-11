@@ -2,22 +2,17 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
-	"github.com/Julian194/claude-sessions-tui/internal/export"
 )
 
 // FilterMode represents the current filter type
@@ -44,6 +39,7 @@ type Model struct {
 	cacheDir     string
 	activePane   string // "list" or "preview"
 	showActivity bool
+	showHelp     bool
 	filterMode   FilterMode
 	filterValue  string // For project filter
 
@@ -65,70 +61,6 @@ type Model struct {
 	// Result (set when user selects an action)
 	result *Result
 	done   bool
-}
-
-// DateHeaderItem is a non-selectable date separator
-type DateHeaderItem struct {
-	date string
-}
-
-func (d DateHeaderItem) Title() string {
-	return "─── " + d.date + " ───"
-}
-
-func (d DateHeaderItem) Description() string {
-	return "" // Empty but still takes up space for consistent height
-}
-
-func (d DateHeaderItem) FilterValue() string {
-	return "" // Not searchable
-}
-
-// SessionItem implements list.Item for cache.Entry
-type SessionItem struct {
-	entry      cache.Entry
-	isPinned   bool
-	isAgent    bool
-	isParent   bool // Has children
-	isExpanded bool // If parent, is it expanded?
-	childCount int  // Number of children (for parents)
-}
-
-func (s SessionItem) Title() string {
-	prefix := ""
-
-	// Expand/collapse indicator for parents
-	if s.isParent {
-		if s.isExpanded {
-			prefix = "▼ "
-		} else {
-			prefix = "▶ "
-		}
-	}
-
-	if s.isPinned {
-		prefix += "★ "
-	}
-	if s.isAgent {
-		prefix = "  " // Indent children
-	}
-
-	title := prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
-
-	// Show child count for collapsed parents
-	if s.isParent && !s.isExpanded && s.childCount > 0 {
-		title += fmt.Sprintf(" (%d)", s.childCount)
-	}
-
-	return title
-}
-
-func (s SessionItem) Description() string {
-	return s.entry.Summary
-}
-
-func (s SessionItem) FilterValue() string {
-	return s.entry.Project + " " + s.entry.Summary + " " + s.entry.SessionID
 }
 
 // NewModel creates a new TUI model
@@ -175,12 +107,6 @@ func (m Model) Init() tea.Cmd {
 	return m.loadSessions()
 }
 
-// loadSessionsMsg is sent when sessions are loaded
-type loadSessionsMsg struct {
-	entries []cache.Entry
-	err     error
-}
-
 func (m Model) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		cacheFile := filepath.Join(m.cacheDir, "sessions-cache.tsv")
@@ -196,12 +122,6 @@ func (m Model) loadSessions() tea.Cmd {
 	}
 }
 
-// refreshCacheMsg is sent when cache is refreshed
-type refreshCacheMsg struct {
-	entries []cache.Entry
-	err     error
-}
-
 func (m Model) refreshCache() tea.Cmd {
 	return func() tea.Msg {
 		cacheFile := filepath.Join(m.cacheDir, "sessions-cache.tsv")
@@ -212,109 +132,6 @@ func (m Model) refreshCache() tea.Cmd {
 		}
 		return refreshCacheMsg{entries: entries, err: err}
 	}
-}
-
-// exportMsg is sent when export completes
-type exportMsg struct {
-	filename string
-	err      error
-}
-
-func (m Model) exportHTML(sid string) tea.Cmd {
-	return func() tea.Msg {
-		messages, err := m.adapter.ExportMessages(sid)
-		if err != nil {
-			return exportMsg{err: err}
-		}
-
-		info, err := m.adapter.GetSessionInfo(sid)
-		if err != nil {
-			return exportMsg{err: err}
-		}
-
-		models, _ := m.adapter.GetModels(sid)
-		html := export.ToHTML(messages, info, models)
-
-		shortID := sid
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
-		}
-		filename := fmt.Sprintf("/tmp/session-%s.html", shortID)
-		if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
-			return exportMsg{err: err}
-		}
-
-		// Open in browser
-		if cmd, err := exec.LookPath("xdg-open"); err == nil {
-			exec.Command(cmd, filename).Start()
-		}
-
-		return exportMsg{filename: filename}
-	}
-}
-
-// copyMsg is sent when copy completes
-type copyMsg struct {
-	err error
-}
-
-func (m Model) copyMarkdown(sid string) tea.Cmd {
-	return func() tea.Msg {
-		messages, err := m.adapter.ExportMessages(sid)
-		if err != nil {
-			return copyMsg{err: err}
-		}
-
-		info, _ := m.adapter.GetSessionInfo(sid)
-		models, _ := m.adapter.GetModels(sid)
-		md := export.ToMarkdown(messages, info, models)
-
-		// Write to temp file first (more reliable on Wayland)
-		// Note: don't delete - wl-copy forks and needs the file
-		tmpFile := "/tmp/claude-session-clipboard.md"
-		if err := os.WriteFile(tmpFile, []byte(md), 0644); err != nil {
-			return copyMsg{err: err}
-		}
-
-		// Find clipboard tool and copy from file
-		var clipCmd *exec.Cmd
-		if _, err := exec.LookPath("wl-copy"); err == nil {
-			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("wl-copy < %s", tmpFile))
-		} else if _, err := exec.LookPath("xclip"); err == nil {
-			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xclip -selection clipboard < %s", tmpFile))
-		} else if _, err := exec.LookPath("pbcopy"); err == nil {
-			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("pbcopy < %s", tmpFile))
-		} else {
-			return copyMsg{err: fmt.Errorf("no clipboard tool found")}
-		}
-
-		clipCmd.Env = os.Environ()
-		if err := clipCmd.Run(); err != nil {
-			return copyMsg{err: err}
-		}
-
-		return copyMsg{}
-	}
-}
-
-// clearMessageMsg clears the status message
-type clearMessageMsg struct{}
-
-func clearMessageAfter(d time.Duration) tea.Cmd {
-	return tea.Tick(d, func(time.Time) tea.Msg {
-		return clearMessageMsg{}
-	})
-}
-
-// previewUpdateMsg triggers a debounced preview update
-type previewUpdateMsg struct {
-	index int // the index that requested this update
-}
-
-func requestPreviewUpdate(index int) tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
-		return previewUpdateMsg{index: index}
-	})
 }
 
 // Update implements tea.Model
@@ -373,175 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// Handle quit first
-		if key.Matches(msg, m.keys.Quit) {
-			m.done = true
-			return m, tea.Quit
-		}
-
-		// Don't process other keys while filtering
-		if m.list.FilterState() == list.Filtering {
-			var cmd tea.Cmd
-			m.list, cmd = m.list.Update(msg)
-			return m, cmd
-		}
-
-		switch {
-		case key.Matches(msg, m.keys.Tab):
-			if m.activePane == "list" {
-				m.activePane = "preview"
-			} else {
-				m.activePane = "list"
-			}
-
-		case key.Matches(msg, m.keys.Select):
-			item := m.getSelectedSession()
-			if item != nil {
-				m.result = &Result{
-					SessionID: item.entry.SessionID,
-					Action:    ActionResume,
-				}
-				if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
-					m.result.WorkDir = info.WorkDir
-				}
-				m.done = true
-				return m, tea.Quit
-			}
-
-		case key.Matches(msg, m.keys.Export):
-			item := m.getSelectedSession()
-			if item != nil {
-				m.message = "Exporting..."
-				return m, m.exportHTML(item.entry.SessionID)
-			}
-
-		case key.Matches(msg, m.keys.CopyMD):
-			item := m.getSelectedSession()
-			if item != nil {
-				m.message = "Copying..."
-				return m, m.copyMarkdown(item.entry.SessionID)
-			}
-
-		case key.Matches(msg, m.keys.Open):
-			item := m.getSelectedSession()
-			if item != nil {
-				m.result = &Result{
-					SessionID: item.entry.SessionID,
-					Action:    ActionOpen,
-				}
-				m.done = true
-				return m, tea.Quit
-			}
-
-		case key.Matches(msg, m.keys.Branch):
-			item := m.getSelectedSession()
-			if item != nil {
-				m.result = &Result{
-					SessionID: item.entry.SessionID,
-					Action:    ActionBranch,
-				}
-				m.done = true
-				return m, tea.Quit
-			}
-
-		case key.Matches(msg, m.keys.Pin):
-			item := m.getSelectedSession()
-			if item != nil {
-				pinned := m.pins.Toggle(item.entry.SessionID)
-				m.pins.Save()
-				if pinned {
-					m.message = "Pinned session"
-				} else {
-					m.message = "Unpinned session"
-				}
-				m.updateListItems()
-			}
-
-		case key.Matches(msg, m.keys.Refresh):
-			m.loading = true
-			m.message = "Refreshing..."
-			return m, m.refreshCache()
-
-		case key.Matches(msg, m.keys.ToggleActivity):
-			m.showActivity = !m.showActivity
-			m.updatePreview()
-
-		case key.Matches(msg, m.keys.ToggleExpand):
-			item := m.getSelectedSession()
-			if item != nil && item.isParent {
-				m.expanded[item.entry.SessionID] = !m.expanded[item.entry.SessionID]
-				m.updateListItems()
-			}
-			return m, nil // Don't pass to list
-
-		case key.Matches(msg, m.keys.Expand):
-			item := m.getSelectedSession()
-			if item != nil && item.isParent && !m.expanded[item.entry.SessionID] {
-				m.expanded[item.entry.SessionID] = true
-				m.updateListItems()
-			}
-			return m, nil // Don't pass to list
-
-		case key.Matches(msg, m.keys.Collapse):
-			item := m.getSelectedSession()
-			if item != nil && item.isParent && m.expanded[item.entry.SessionID] {
-				m.expanded[item.entry.SessionID] = false
-				m.updateListItems()
-			}
-			return m, nil // Don't pass to list
-
-		// Quick filters
-		case key.Matches(msg, m.keys.FilterToday):
-			if m.filterMode == FilterToday {
-				m.filterMode = FilterNone
-				m.message = "Filter: All"
-			} else {
-				m.filterMode = FilterToday
-				m.message = "Filter: Today"
-			}
-			m.updateListItems()
-
-		case key.Matches(msg, m.keys.FilterWeek):
-			if m.filterMode == FilterWeek {
-				m.filterMode = FilterNone
-				m.message = "Filter: All"
-			} else {
-				m.filterMode = FilterWeek
-				m.message = "Filter: This week"
-			}
-			m.updateListItems()
-
-		case key.Matches(msg, m.keys.FilterCost):
-			if m.filterMode == FilterHighCost {
-				m.filterMode = FilterNone
-				m.message = "Filter: All"
-			} else {
-				m.filterMode = FilterHighCost
-				m.message = "Filter: High cost (>$0.10)"
-			}
-			m.updateListItems()
-
-		case key.Matches(msg, m.keys.FilterProject):
-			item := m.getSelectedSession()
-			if item != nil {
-				if m.filterMode == FilterProject && m.filterValue == item.entry.Project {
-					m.filterMode = FilterNone
-					m.message = "Filter: All"
-				} else {
-					m.filterMode = FilterProject
-					m.filterValue = item.entry.Project
-					m.message = "Filter: " + item.entry.Project
-				}
-				m.updateListItems()
-			}
-
-		case key.Matches(msg, m.keys.FilterClear):
-			if m.filterMode != FilterNone {
-				m.filterMode = FilterNone
-				m.message = "Filter cleared"
-				m.updateListItems()
-			}
-		}
+		return m.handleKeyMsg(msg)
 	}
 
 	// Route updates to active pane
@@ -554,24 +203,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Skip date headers (not selectable)
 		newIndex := m.list.Index()
 		if _, isHeader := m.list.SelectedItem().(DateHeaderItem); isHeader {
-			// Determine direction and skip to next session
-			if newIndex > oldIndex {
-				// Moving down - find next session
-				for i := newIndex + 1; i < len(m.list.Items()); i++ {
-					if _, ok := m.list.Items()[i].(SessionItem); ok {
-						m.list.Select(i)
-						break
-					}
-				}
-			} else {
-				// Moving up - find previous session
-				for i := newIndex - 1; i >= 0; i-- {
-					if _, ok := m.list.Items()[i].(SessionItem); ok {
-						m.list.Select(i)
-						break
-					}
-				}
-			}
+			m.skipDateHeader(oldIndex, newIndex)
 		}
 
 		// Debounced preview update when selection changes
@@ -587,7 +219,202 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// getSelectedSession returns the selected session item
+// handleKeyMsg handles keyboard input
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle quit first
+	if key.Matches(msg, m.keys.Quit) {
+		m.done = true
+		return m, tea.Quit
+	}
+
+	// Don't process other keys while filtering
+	if m.list.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
+	}
+
+	switch {
+	// Navigation
+	case key.Matches(msg, m.keys.Tab):
+		if m.activePane == "list" {
+			m.activePane = "preview"
+		} else {
+			m.activePane = "list"
+		}
+
+	// Session actions
+	case key.Matches(msg, m.keys.Select):
+		return m.handleSelect()
+
+	case key.Matches(msg, m.keys.Export):
+		return m.handleExport()
+
+	case key.Matches(msg, m.keys.CopyMD):
+		return m.handleCopyMD()
+
+	case key.Matches(msg, m.keys.Open):
+		return m.handleOpen()
+
+	case key.Matches(msg, m.keys.Branch):
+		return m.handleBranch()
+
+	case key.Matches(msg, m.keys.Pin):
+		m.handlePin()
+
+	case key.Matches(msg, m.keys.Refresh):
+		m.loading = true
+		m.message = "Refreshing..."
+		return m, m.refreshCache()
+
+	case key.Matches(msg, m.keys.ToggleActivity):
+		m.showActivity = !m.showActivity
+		m.updatePreview()
+
+	case key.Matches(msg, m.keys.Help):
+		m.showHelp = !m.showHelp
+		return m, nil
+
+	// Expand/collapse parent sessions
+	case key.Matches(msg, m.keys.ToggleExpand):
+		item := m.getSelectedSession()
+		if item != nil && item.isParent {
+			m.expanded[item.entry.SessionID] = !m.expanded[item.entry.SessionID]
+			m.updateListItems()
+		}
+		return m, nil
+
+	case key.Matches(msg, m.keys.Expand):
+		item := m.getSelectedSession()
+		if item != nil && item.isParent && !m.expanded[item.entry.SessionID] {
+			m.expanded[item.entry.SessionID] = true
+			m.updateListItems()
+		}
+		return m, nil
+
+	case key.Matches(msg, m.keys.Collapse):
+		item := m.getSelectedSession()
+		if item != nil && item.isParent && m.expanded[item.entry.SessionID] {
+			m.expanded[item.entry.SessionID] = false
+			m.updateListItems()
+		}
+		return m, nil
+
+	// Quick filters
+	case key.Matches(msg, m.keys.FilterToday):
+		m.toggleFilter(FilterToday, "Today")
+
+	case key.Matches(msg, m.keys.FilterWeek):
+		m.toggleFilter(FilterWeek, "This week")
+
+	case key.Matches(msg, m.keys.FilterCost):
+		m.toggleFilter(FilterHighCost, "High cost (>$0.10)")
+
+	case key.Matches(msg, m.keys.FilterProject):
+		if item := m.getSelectedSession(); item != nil {
+			if m.filterMode == FilterProject && m.filterValue == item.entry.Project {
+				m.toggleFilter(FilterNone, "All")
+			} else {
+				m.filterMode = FilterProject
+				m.filterValue = item.entry.Project
+				m.message = "Filter: " + item.entry.Project
+				m.updateListItems()
+			}
+		}
+
+	case key.Matches(msg, m.keys.FilterClear):
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+		if m.filterMode != FilterNone {
+			m.filterMode = FilterNone
+			m.message = "Filter cleared"
+			m.updateListItems()
+		}
+	}
+
+	return m, nil
+}
+
+// Session action handlers
+
+func (m Model) handleSelect() (tea.Model, tea.Cmd) {
+	item := m.getSelectedSession()
+	if item != nil {
+		m.result = &Result{
+			SessionID: item.entry.SessionID,
+			Action:    ActionResume,
+		}
+		if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
+			m.result.WorkDir = info.WorkDir
+		}
+		m.done = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) handleExport() (tea.Model, tea.Cmd) {
+	item := m.getSelectedSession()
+	if item != nil {
+		m.message = "Exporting..."
+		return m, m.exportHTML(item.entry.SessionID)
+	}
+	return m, nil
+}
+
+func (m Model) handleCopyMD() (tea.Model, tea.Cmd) {
+	item := m.getSelectedSession()
+	if item != nil {
+		m.message = "Copying..."
+		return m, m.copyMarkdown(item.entry.SessionID)
+	}
+	return m, nil
+}
+
+func (m Model) handleOpen() (tea.Model, tea.Cmd) {
+	item := m.getSelectedSession()
+	if item != nil {
+		m.result = &Result{
+			SessionID: item.entry.SessionID,
+			Action:    ActionOpen,
+		}
+		m.done = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) handleBranch() (tea.Model, tea.Cmd) {
+	item := m.getSelectedSession()
+	if item != nil {
+		m.result = &Result{
+			SessionID: item.entry.SessionID,
+			Action:    ActionBranch,
+		}
+		m.done = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *Model) handlePin() {
+	item := m.getSelectedSession()
+	if item != nil {
+		pinned := m.pins.Toggle(item.entry.SessionID)
+		m.pins.Save()
+		if pinned {
+			m.message = "Pinned session"
+		} else {
+			m.message = "Unpinned session"
+		}
+		m.updateListItems()
+	}
+}
+
+// Helper methods
+
 func (m *Model) getSelectedSession() *SessionItem {
 	selected := m.list.SelectedItem()
 	if selected == nil {
@@ -599,88 +426,39 @@ func (m *Model) getSelectedSession() *SessionItem {
 	return nil
 }
 
-// View implements tea.Model
-func (m Model) View() string {
-	if m.width == 0 {
-		return "Loading..."
-	}
-
-	// Calculate pane dimensions (border takes 2 chars each side)
-	listWidth := m.width / 2
-	previewWidth := m.width - listWidth
-
-	// Content dimensions (subtract border)
-	listContentWidth := listWidth - 2
-	previewContentWidth := previewWidth - 2
-	contentHeight := m.height - 4
-
-	// Apply borders based on active pane
-	var listPane, previewPane string
-
-	listContent := m.list.View()
-	previewContent := m.preview.View()
-
-	if m.activePane == "list" {
-		listPane = activeBorderStyle.
-			Width(listContentWidth).
-			Height(contentHeight).
-			Render(listContent)
-		previewPane = inactiveBorderStyle.
-			Width(previewContentWidth).
-			Height(contentHeight).
-			Render(previewContent)
+func (m *Model) toggleFilter(mode FilterMode, label string) {
+	if m.filterMode == mode {
+		m.filterMode = FilterNone
+		m.message = "Filter: All"
 	} else {
-		listPane = inactiveBorderStyle.
-			Width(listContentWidth).
-			Height(contentHeight).
-			Render(listContent)
-		previewPane = activeBorderStyle.
-			Width(previewContentWidth).
-			Height(contentHeight).
-			Render(previewContent)
+		m.filterMode = mode
+		m.message = "Filter: " + label
 	}
-
-	// Join panes horizontally
-	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listPane, previewPane)
-
-	// Status bar with filter indicator
-	filterIndicator := ""
-	switch m.filterMode {
-	case FilterToday:
-		filterIndicator = " [Today]"
-	case FilterWeek:
-		filterIndicator = " [Week]"
-	case FilterHighCost:
-		filterIndicator = " [$$$]"
-	case FilterProject:
-		filterIndicator = " [" + m.filterValue + "]"
-	}
-
-	helpText := "enter:resume  space:expand  p:pin  1-4:filter  ctrl+o:export  ctrl+y:copy  ctrl+r:refresh  q:quit"
-	if m.filterMode != FilterNone {
-		helpText = "esc:clear  " + helpText
-	}
-	help := helpStyle.Render(helpText)
-	status := statusBarStyle.Render(m.message + filterIndicator)
-	statusBar := lipgloss.JoinHorizontal(lipgloss.Left, status, "  ", help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar)
+	m.updateListItems()
 }
 
-// updateLayout recalculates component sizes
-func (m *Model) updateLayout() {
-	listWidth := m.width / 2
-	previewWidth := m.width - listWidth
-
-	// List content area (inside border: -2 for border, -2 for padding)
-	m.list.SetSize(listWidth-4, m.height-6)
-
-	// Preview viewport (inside border)
-	m.preview.Width = previewWidth - 4
-	m.preview.Height = m.height - 6
+func (m *Model) skipDateHeader(oldIndex, newIndex int) {
+	if newIndex > oldIndex {
+		// Moving down - find next session
+		for i := newIndex + 1; i < len(m.list.Items()); i++ {
+			if _, ok := m.list.Items()[i].(SessionItem); ok {
+				m.list.Select(i)
+				break
+			}
+		}
+	} else {
+		// Moving up - find previous session
+		for i := newIndex - 1; i >= 0; i-- {
+			if _, ok := m.list.Items()[i].(SessionItem); ok {
+				m.list.Select(i)
+				break
+			}
+		}
+	}
 }
 
-// updateListItems refreshes the list with sorted sessions
+// List and filtering
+
 func (m *Model) updateListItems() {
 	// Apply filters first - make a copy to avoid modifying original
 	filtered := make([]cache.Entry, len(m.sessions))
@@ -693,7 +471,7 @@ func (m *Model) updateListItems() {
 
 	// Separate parent sessions and child sessions
 	var parentSessions []cache.Entry
-	childSessions := make(map[string][]cache.Entry) // parentID -> children
+	childSessions := make(map[string][]cache.Entry)
 
 	for _, entry := range filtered {
 		isAgent := entry.ParentSID != "" && entry.ParentSID != "-"
@@ -793,14 +571,12 @@ func (m *Model) updateListItems() {
 	m.updatePreview()
 }
 
-// applyFilters filters sessions based on current filter mode
 func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
 	if m.filterMode == FilterNone || m.filterMode == FilterHighCost || len(sessions) == 0 {
-		// FilterHighCost currently shows all (cost data not in cache)
 		return sessions
 	}
 
-	now := sessions[0].Date // Use most recent session date as reference
+	now := sessions[0].Date
 	var filtered []cache.Entry
 
 	for _, entry := range sessions {
@@ -821,110 +597,10 @@ func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
 		}
 	}
 
-	// If filter results empty, show all
 	if len(filtered) == 0 {
 		return sessions
 	}
 	return filtered
-}
-
-// updatePreview updates the preview pane content
-func (m *Model) updatePreview() {
-	item := m.getSelectedSession()
-	if item == nil {
-		m.preview.SetContent("No session selected")
-		return
-	}
-
-	if m.showActivity {
-		m.preview.SetContent("Activity heatmap (TODO)")
-		return
-	}
-
-	// Generate preview content
-	var b strings.Builder
-
-	// Header with styling
-	b.WriteString(fmt.Sprintf("ID: %s\n", item.entry.SessionID))
-	b.WriteString(fmt.Sprintf("Project: %s\n", item.entry.Project))
-	b.WriteString(fmt.Sprintf("Date: %s\n", item.entry.Date.Format("2006-01-02 15:04")))
-
-	if item.isAgent {
-		b.WriteString(fmt.Sprintf("Parent: %s\n", item.entry.ParentSID))
-	}
-
-	// Get additional info from adapter
-	if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
-		if info.Branch != "" {
-			b.WriteString(fmt.Sprintf("Branch: %s\n", info.Branch))
-		}
-	}
-
-	// Models
-	if models, err := m.adapter.GetModels(item.entry.SessionID); err == nil && len(models) > 0 {
-		b.WriteString(fmt.Sprintf("Models: %s\n", strings.Join(models, ", ")))
-	}
-
-	b.WriteString("\n")
-
-	// Summaries
-	if summaries, err := m.adapter.GetSummaries(item.entry.SessionID); err == nil && len(summaries) > 0 {
-		b.WriteString("━━━ Topics ━━━\n")
-		for _, s := range summaries {
-			b.WriteString(fmt.Sprintf("• %s\n", s))
-		}
-		b.WriteString("\n")
-	}
-
-	// Slash commands
-	if cmds, err := m.adapter.GetSlashCommands(item.entry.SessionID); err == nil && len(cmds) > 0 {
-		b.WriteString("━━━ Slash Commands ━━━\n")
-		for _, cmd := range cmds {
-			b.WriteString(fmt.Sprintf("  %s\n", cmd))
-		}
-		b.WriteString("\n")
-	}
-
-	// Files
-	if files, err := m.adapter.GetFilesTouched(item.entry.SessionID); err == nil && len(files) > 0 {
-		b.WriteString("━━━ Files ━━━\n")
-		shown := files
-		if len(shown) > 10 {
-			shown = shown[:10]
-		}
-		for _, f := range shown {
-			b.WriteString(fmt.Sprintf("• %s\n", f))
-		}
-		if len(files) > 10 {
-			b.WriteString(fmt.Sprintf("  ... and %d more\n", len(files)-10))
-		}
-		b.WriteString("\n")
-	}
-
-	// Stats
-	if stats, err := m.adapter.GetStats(item.entry.SessionID); err == nil {
-		b.WriteString("━━━ Stats ━━━\n")
-		b.WriteString(fmt.Sprintf("Messages: %d user, %d assistant\n", stats.UserMessages, stats.AssistantMessages))
-		b.WriteString(fmt.Sprintf("Tokens: %d in, %d out", stats.InputTokens, stats.OutputTokens))
-		if stats.CacheRead > 0 || stats.CacheWrite > 0 {
-			b.WriteString(fmt.Sprintf(", %d cache", stats.CacheRead+stats.CacheWrite))
-		}
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("Cost: $%.4f\n", stats.Cost))
-		b.WriteString("\n")
-	}
-
-	// First message (if no summaries)
-	if summaries, _ := m.adapter.GetSummaries(item.entry.SessionID); len(summaries) == 0 {
-		if msg, err := m.adapter.GetFirstMessage(item.entry.SessionID); err == nil && msg != "" {
-			b.WriteString("━━━ First Message ━━━\n")
-			b.WriteString(msg)
-			b.WriteString("\n")
-		}
-	}
-
-	m.preview.SetContent(b.String())
-	m.preview.GotoTop()
 }
 
 // Result returns the user's selection (nil if cancelled)

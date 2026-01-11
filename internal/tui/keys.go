@@ -32,6 +32,9 @@ type KeyMap struct {
 	Expand         key.Binding // Expand with right arrow
 	Collapse       key.Binding // Collapse with left arrow
 
+	// Help
+	Help key.Binding
+
 	// Quit
 	Quit key.Binding
 }
@@ -118,6 +121,10 @@ func DefaultKeyMap() KeyMap {
 		Collapse: key.NewBinding(
 			key.WithKeys("left", "h"),
 			key.WithHelp("←/h", "collapse"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "help"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
