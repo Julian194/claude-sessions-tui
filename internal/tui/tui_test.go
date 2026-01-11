@@ -12,8 +12,9 @@ import (
 func TestDateHeaderItem(t *testing.T) {
 	header := DateHeaderItem{date: "Today, Jan 11"}
 
-	if header.Title() != "─── Today, Jan 11 ───" {
-		t.Errorf("Title should be formatted with dashes, got: %s", header.Title())
+	// Title returns just the date - styling is applied by the delegate
+	if header.Title() != "Today, Jan 11" {
+		t.Errorf("Title should return date string, got: %s", header.Title())
 	}
 	if header.Description() != "" {
 		t.Error("Description should be empty")

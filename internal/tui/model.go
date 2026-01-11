@@ -70,12 +70,8 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 	pins := NewPins(cacheDir)
 	pins.Load()
 
-	// Create list with default delegate
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = selectedItemStyle
-	delegate.Styles.SelectedDesc = selectedItemStyle
-	delegate.Styles.NormalTitle = normalItemStyle
-	delegate.Styles.NormalDesc = dimItemStyle
+	// Create list with custom delegate for styled date headers
+	delegate := NewSessionDelegate()
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Sessions"

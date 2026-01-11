@@ -90,7 +90,7 @@ func (m *Model) updateLayout() {
 func (m *Model) updatePreview() {
 	item := m.getSelectedSession()
 	if item == nil {
-		m.preview.SetContent("No session selected")
+		m.preview.SetContent(dimItemStyle.Render("No session selected"))
 		return
 	}
 
@@ -102,85 +102,151 @@ func (m *Model) updatePreview() {
 	// Generate preview content
 	var b strings.Builder
 
-	// Header with styling
-	b.WriteString(fmt.Sprintf("ID: %s\n", item.entry.SessionID))
-	b.WriteString(fmt.Sprintf("Project: %s\n", item.entry.Project))
-	b.WriteString(fmt.Sprintf("Date: %s\n", item.entry.Date.Format("2006-01-02 15:04")))
+	// Project name as title
+	b.WriteString(projectStyle.Render(item.entry.Project))
+	b.WriteString("\n")
+
+	// Date prominently displayed
+	b.WriteString(valueStyle.Render(item.entry.Date.Format("Mon, Jan 2 2006 at 15:04")))
+	b.WriteString("\n\n")
+
+	// Metadata section
+	b.WriteString(labelStyle.Render("ID "))
+	b.WriteString(idStyle.Render(item.entry.SessionID))
+	b.WriteString("\n")
 
 	if item.isAgent {
-		b.WriteString(fmt.Sprintf("Parent: %s\n", item.entry.ParentSID))
+		b.WriteString(labelStyle.Render("Parent "))
+		b.WriteString(idStyle.Render(item.entry.ParentSID))
+		b.WriteString("\n")
 	}
 
 	// Get additional info from adapter
 	if info, err := m.adapter.GetSessionInfo(item.entry.SessionID); err == nil {
 		if info.Branch != "" {
-			b.WriteString(fmt.Sprintf("Branch: %s\n", info.Branch))
+			b.WriteString(labelStyle.Render("Branch "))
+			b.WriteString(branchStyle.Render(info.Branch))
+			b.WriteString("\n")
 		}
 	}
 
 	// Models
 	if models, err := m.adapter.GetModels(item.entry.SessionID); err == nil && len(models) > 0 {
-		b.WriteString(fmt.Sprintf("Models: %s\n", strings.Join(models, ", ")))
+		b.WriteString(labelStyle.Render("Model "))
+		b.WriteString(modelStyle.Render(strings.Join(models, ", ")))
+		b.WriteString("\n")
 	}
 
-	b.WriteString("\n")
+	// Stats (placed early for visibility)
+	if stats, err := m.adapter.GetStats(item.entry.SessionID); err == nil {
+		b.WriteString("\n")
+		b.WriteString(renderSectionHeader("Stats"))
+		b.WriteString("\n")
 
-	// Summaries
-	if summaries, err := m.adapter.GetSummaries(item.entry.SessionID); err == nil && len(summaries) > 0 {
-		b.WriteString("━━━ Topics ━━━\n")
-		for _, s := range summaries {
-			b.WriteString(fmt.Sprintf("• %s\n", s))
+		// Cost with color coding
+		costStr := fmt.Sprintf("$%.4f", stats.Cost)
+		var costStyled string
+		switch {
+		case stats.Cost < 0.05:
+			costStyled = costLowStyle.Render(costStr)
+		case stats.Cost < 0.20:
+			costStyled = costMedStyle.Render(costStr)
+		default:
+			costStyled = costHighStyle.Render(costStr)
+		}
+		b.WriteString(labelStyle.Render("Cost "))
+		b.WriteString(costStyled)
+		b.WriteString("\n")
+
+		// Messages
+		b.WriteString(labelStyle.Render("Messages "))
+		b.WriteString(statValueStyle.Render(fmt.Sprintf("%d", stats.UserMessages)))
+		b.WriteString(dimItemStyle.Render(" user, "))
+		b.WriteString(statValueStyle.Render(fmt.Sprintf("%d", stats.AssistantMessages)))
+		b.WriteString(dimItemStyle.Render(" assistant"))
+		b.WriteString("\n")
+
+		// Tokens
+		b.WriteString(labelStyle.Render("Tokens "))
+		b.WriteString(statValueStyle.Render(formatTokens(stats.InputTokens)))
+		b.WriteString(dimItemStyle.Render(" in, "))
+		b.WriteString(statValueStyle.Render(formatTokens(stats.OutputTokens)))
+		b.WriteString(dimItemStyle.Render(" out"))
+		if stats.CacheRead > 0 || stats.CacheWrite > 0 {
+			b.WriteString(dimItemStyle.Render(", "))
+			b.WriteString(statValueStyle.Render(formatTokens(stats.CacheRead + stats.CacheWrite)))
+			b.WriteString(dimItemStyle.Render(" cache"))
 		}
 		b.WriteString("\n")
+	}
+
+	// Summaries/Topics
+	if summaries, err := m.adapter.GetSummaries(item.entry.SessionID); err == nil && len(summaries) > 0 {
+		b.WriteString("\n")
+		b.WriteString(renderSectionHeader("Topics"))
+		b.WriteString("\n")
+		for _, s := range summaries {
+			b.WriteString(bulletStyle.Render("▸ "))
+			b.WriteString(valueStyle.Render(s))
+			b.WriteString("\n")
+		}
 	}
 
 	// Slash commands
 	if cmds, err := m.adapter.GetSlashCommands(item.entry.SessionID); err == nil && len(cmds) > 0 {
-		b.WriteString("━━━ Slash Commands ━━━\n")
-		for _, cmd := range cmds {
-			b.WriteString(fmt.Sprintf("  %s\n", cmd))
-		}
 		b.WriteString("\n")
+		b.WriteString(renderSectionHeader("Commands"))
+		b.WriteString("\n")
+		for _, cmd := range cmds {
+			b.WriteString("  ")
+			b.WriteString(slashCmdStyle.Render(cmd))
+			b.WriteString("\n")
+		}
 	}
 
 	// Files
 	if files, err := m.adapter.GetFilesTouched(item.entry.SessionID); err == nil && len(files) > 0 {
-		b.WriteString("━━━ Files ━━━\n")
+		b.WriteString("\n")
+		b.WriteString(renderSectionHeader(fmt.Sprintf("Files (%d)", len(files))))
+		b.WriteString("\n")
 		shown := files
 		if len(shown) > 10 {
 			shown = shown[:10]
 		}
 		for _, f := range shown {
-			b.WriteString(fmt.Sprintf("• %s\n", f))
+			b.WriteString(bulletStyle.Render("▸ "))
+			b.WriteString(filePathStyle.Render(f))
+			b.WriteString("\n")
 		}
 		if len(files) > 10 {
-			b.WriteString(fmt.Sprintf("  ... and %d more\n", len(files)-10))
+			b.WriteString(dimItemStyle.Render(fmt.Sprintf("  + %d more files\n", len(files)-10)))
 		}
-		b.WriteString("\n")
-	}
-
-	// Stats
-	if stats, err := m.adapter.GetStats(item.entry.SessionID); err == nil {
-		b.WriteString("━━━ Stats ━━━\n")
-		b.WriteString(fmt.Sprintf("Messages: %d user, %d assistant\n", stats.UserMessages, stats.AssistantMessages))
-		b.WriteString(fmt.Sprintf("Tokens: %d in, %d out", stats.InputTokens, stats.OutputTokens))
-		if stats.CacheRead > 0 || stats.CacheWrite > 0 {
-			b.WriteString(fmt.Sprintf(", %d cache", stats.CacheRead+stats.CacheWrite))
-		}
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("Cost: $%.4f\n", stats.Cost))
-		b.WriteString("\n")
 	}
 
 	// First message (if no summaries)
 	if summaries, _ := m.adapter.GetSummaries(item.entry.SessionID); len(summaries) == 0 {
 		if msg, err := m.adapter.GetFirstMessage(item.entry.SessionID); err == nil && msg != "" {
-			b.WriteString("━━━ First Message ━━━\n")
-			b.WriteString(msg)
+			b.WriteString("\n")
+			b.WriteString(renderSectionHeader("First Message"))
+			b.WriteString("\n")
+			b.WriteString(dimItemStyle.Render(msg))
 			b.WriteString("\n")
 		}
 	}
 
 	m.preview.SetContent(b.String())
 	m.preview.GotoTop()
+}
+
+// renderSectionHeader creates a styled section header
+func renderSectionHeader(title string) string {
+	return sectionHeaderStyle.Render("─── " + title + " ───")
+}
+
+// formatTokens formats token counts with K suffix for readability
+func formatTokens(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fK", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }

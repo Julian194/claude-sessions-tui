@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"io"
+
+	"github.com/charmbracelet/bubbles/list"
 
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
 )
@@ -12,15 +15,43 @@ type DateHeaderItem struct {
 }
 
 func (d DateHeaderItem) Title() string {
-	return "─── " + d.date + " ───"
+	return d.date
 }
 
 func (d DateHeaderItem) Description() string {
-	return "" // Empty but still takes up space for consistent height
+	return ""
 }
 
 func (d DateHeaderItem) FilterValue() string {
 	return "" // Not searchable
+}
+
+// SessionDelegate is a custom delegate that renders date headers differently
+type SessionDelegate struct {
+	list.DefaultDelegate
+}
+
+// NewSessionDelegate creates a delegate with proper styling
+func NewSessionDelegate() SessionDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles.SelectedTitle = selectedItemStyle
+	d.Styles.SelectedDesc = selectedItemStyle
+	d.Styles.NormalTitle = normalItemStyle
+	d.Styles.NormalDesc = dimItemStyle
+	return SessionDelegate{DefaultDelegate: d}
+}
+
+// Render renders an item - date headers get special styling
+func (d SessionDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if header, ok := item.(DateHeaderItem); ok {
+		// Custom rendering for date headers
+		str := dateHeaderStyle.Render("─── " + header.date + " ───")
+		fmt.Fprint(w, str)
+		return
+	}
+
+	// Use default rendering for session items
+	d.DefaultDelegate.Render(w, m, index, item)
 }
 
 // SessionItem implements list.Item for cache.Entry

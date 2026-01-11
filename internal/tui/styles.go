@@ -10,6 +10,9 @@ var (
 	highlight = lipgloss.Color("#0066FF")
 	green     = lipgloss.Color("#00FF00")
 	yellow    = lipgloss.Color("#FFFF00")
+	red       = lipgloss.Color("#FF6B6B")
+	purple    = lipgloss.Color("#BD93F9")
+	orange    = lipgloss.Color("#FFB86C")
 )
 
 // Styles
@@ -35,32 +38,15 @@ var (
 	dimItemStyle = lipgloss.NewStyle().
 			Foreground(dimWhite)
 
-	// Date header style
+	// Date header in list
 	dateHeaderStyle = lipgloss.NewStyle().
 			Foreground(cyan).
 			Bold(true)
-
-	// Pin indicator
-	pinStyle = lipgloss.NewStyle().
-			Foreground(yellow)
-
-	// Child indicator (branched/agent sessions)
-	childIndicatorStyle = lipgloss.NewStyle().
-				Foreground(dimWhite)
-
-	// Agent session items (slightly dimmed)
-	agentItemStyle = lipgloss.NewStyle().
-			Foreground(dimWhite).
-			Italic(true)
 
 	// Status bar
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(dimWhite).
 			Padding(0, 1)
-
-	// Preview header
-	previewHeaderStyle = lipgloss.NewStyle().
-				Bold(true)
 
 	// Preview section headers
 	sectionHeaderStyle = lipgloss.NewStyle().
@@ -70,4 +56,51 @@ var (
 	// Help text
 	helpStyle = lipgloss.NewStyle().
 			Foreground(dimWhite)
+
+	// Preview pane styles
+	labelStyle = lipgloss.NewStyle().
+			Foreground(dimWhite)
+
+	valueStyle = lipgloss.NewStyle().
+			Foreground(white)
+
+	projectStyle = lipgloss.NewStyle().
+			Foreground(cyan).
+			Bold(true)
+
+	idStyle = lipgloss.NewStyle().
+		Foreground(dimWhite)
+
+	branchStyle = lipgloss.NewStyle().
+			Foreground(purple)
+
+	modelStyle = lipgloss.NewStyle().
+			Foreground(orange)
+
+	// Cost styles (color-coded)
+	costLowStyle = lipgloss.NewStyle().
+			Foreground(green)
+
+	costMedStyle = lipgloss.NewStyle().
+			Foreground(yellow)
+
+	costHighStyle = lipgloss.NewStyle().
+			Foreground(red)
+
+	// Stats
+	statValueStyle = lipgloss.NewStyle().
+			Foreground(white).
+			Bold(true)
+
+	// Bullet points
+	bulletStyle = lipgloss.NewStyle().
+			Foreground(cyan)
+
+	// File path
+	filePathStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8BE9FD"))
+
+	// Slash command
+	slashCmdStyle = lipgloss.NewStyle().
+			Foreground(purple)
 )
