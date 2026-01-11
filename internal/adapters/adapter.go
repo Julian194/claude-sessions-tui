@@ -67,6 +67,7 @@ type Stats struct {
 type Message struct {
 	Role        string       `json:"role"`
 	Content     string       `json:"content"`
+	Thinking    string       `json:"thinking,omitempty"`
 	Timestamp   int64        `json:"timestamp"`
 	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
 	ToolResults []ToolResult `json:"tool_results,omitempty"`
