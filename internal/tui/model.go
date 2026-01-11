@@ -107,13 +107,11 @@ func (m Model) Init() tea.Cmd {
 func (m Model) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		cacheFile := filepath.Join(m.cacheDir, "sessions-cache.tsv")
-		entries, err := cache.Read(cacheFile)
-		if err != nil {
-			// Try building cache
-			entries, err = cache.BuildIncremental(m.adapter, cacheFile, nil)
-			if err == nil {
-				cache.Write(cacheFile, entries)
-			}
+		// Always do incremental build to catch new sessions
+		existing, _ := cache.Read(cacheFile)
+		entries, err := cache.BuildIncremental(m.adapter, cacheFile, existing)
+		if err == nil {
+			cache.Write(cacheFile, entries)
 		}
 		return loadSessionsMsg{entries: entries, err: err}
 	}
