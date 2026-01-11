@@ -71,6 +71,7 @@ func (a *Adapter) ListSessions() ([]string, error) {
 			base := filepath.Base(path)
 			rawID := strings.TrimSuffix(base, ".jsonl")
 
+
 			// Create unique ID - for agent sessions in subagents/ dir, include parent session
 			id := rawID
 			dir := filepath.Dir(path)
@@ -172,6 +173,9 @@ func (a *Adapter) GetSessionFile(id string) string {
 // ErrNoMessages indicates a session has no user/assistant messages (metadata-only)
 var ErrNoMessages = fmt.Errorf("session has no messages")
 
+// ErrWarmupSession indicates a warmup-only session (no real user content)
+var ErrWarmupSession = fmt.Errorf("warmup session")
+
 // ExtractMeta extracts metadata from a session for cache building
 func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 	path := a.GetSessionFile(id)
@@ -204,6 +208,40 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 				}
 				break
 			}
+		}
+
+		// Check for warmup sessions (first user message is just "Warmup" or agent responded with warmup text)
+		isWarmup := false
+		for _, r := range records {
+			if r.Type == "user" && r.Message.Role == "user" {
+				content := strings.TrimSpace(extractTextContent(r.Message.Content))
+				if content == "Warmup" {
+					isWarmup = true
+				}
+				break // Only check first user message
+			}
+		}
+		// Also check if first assistant response is a warmup response (no real task)
+		if !isWarmup {
+			for _, r := range records {
+				if r.Type == "assistant" && r.Message.Role == "assistant" {
+					content := extractTextContent(r.Message.Content)
+					// Check for common warmup response patterns
+					if strings.HasPrefix(content, "I'm ready") ||
+						strings.HasPrefix(content, "I understand you'd like me to warm up") ||
+						strings.HasPrefix(content, "I understand this is a warmup") ||
+						strings.HasPrefix(content, "I understand you're ready") ||
+						strings.HasPrefix(content, "I'll start by exploring") ||
+						strings.HasPrefix(content, "I'll analyze this warmup") ||
+						strings.Contains(content, "This appears to be a warmup") {
+						isWarmup = true
+					}
+					break // Only check first assistant message
+				}
+			}
+		}
+		if isWarmup {
+			return nil, ErrWarmupSession
 		}
 
 		for _, r := range records {
@@ -668,8 +706,17 @@ func (a *Adapter) parseFile(path string) ([]record, error) {
 
 func extractProject(path string) string {
 	// Path format: .../projects/{project-name}/{session}.jsonl
+	// Or for agents: .../projects/{project-name}/{parent-session}/subagents/{agent}.jsonl
 	dir := filepath.Dir(path)
 	project := filepath.Base(dir)
+
+	// For agent sessions, go up to the project directory
+	if project == "subagents" {
+		// Go up two levels: subagents -> parent-session -> project
+		parentDir := filepath.Dir(dir)       // parent-session dir
+		projectDir := filepath.Dir(parentDir) // project dir
+		project = filepath.Base(projectDir)
+	}
 
 	// Claude encodes full paths as project names: -Users-julian-code-foo
 	// Convert back to readable format: code/foo
