@@ -47,7 +47,7 @@ User can set up shell aliases to switch between them.
 - `cmd/sessions/` - CLI entry point (binary name determines adapter)
 - `internal/adapters/claude/` - Claude Code adapter
 - `internal/adapters/opencode/` - OpenCode adapter  
-- `internal/tui/` - fzf TUI integration
+- `internal/tui/` - Bubble Tea TUI
 - `internal/cache/` - Session cache management
 - `internal/export/` - HTML/Markdown export
 - `internal/stats/` - Token counting and cost calculation

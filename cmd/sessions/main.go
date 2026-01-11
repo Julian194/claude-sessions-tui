@@ -169,34 +169,31 @@ func runStats(adapter adapters.Adapter, sid string) error {
 	return nil
 }
 
-func runActivity(adapter adapters.Adapter, cacheDir string) error {
+func loadCacheEntries(adapter adapters.Adapter, cacheDir string) ([]cache.Entry, error) {
 	cacheFile := filepath.Join(cacheDir, "sessions-cache.tsv")
-
 	entries, err := cache.Read(cacheFile)
 	if err != nil {
-		entries, err = cache.BuildFrom(adapter)
-		if err != nil {
-			return err
-		}
+		return cache.BuildFrom(adapter)
 	}
+	return entries, nil
+}
 
-	fmt.Println(heatmap.RenderFromCache(entries, 0))
+func runActivity(adapter adapters.Adapter, cacheDir string) error {
+	entries, err := loadCacheEntries(adapter, cacheDir)
+	if err != nil {
+		return err
+	}
+	fmt.Println(heatmap.RenderFromCache(entries, 0, time.Now().Year()))
 	return nil
 }
 
 func runActivityPreview(adapter adapters.Adapter, cacheDir string) error {
-	cacheFile := filepath.Join(cacheDir, "sessions-cache.tsv")
-
-	entries, err := cache.Read(cacheFile)
+	entries, err := loadCacheEntries(adapter, cacheDir)
 	if err != nil {
-		entries, err = cache.BuildFrom(adapter)
-		if err != nil {
-			return err
-		}
+		return err
 	}
-
-	fmt.Println("\n📊 Activity Heatmap")
-	fmt.Println(heatmap.RenderFromCache(entries, 0))
+	fmt.Println("\nActivity Heatmap")
+	fmt.Println(heatmap.RenderFromCache(entries, 0, time.Now().Year()))
 	return nil
 }
 
@@ -214,12 +211,7 @@ func runExport(adapter adapters.Adapter, sid string) error {
 	models, _ := adapter.GetModels(sid)
 	html := export.ToHTML(messages, info, models)
 
-	// Write to /tmp for reliable access
-	shortID := sid
-	if len(shortID) > 8 {
-		shortID = shortID[:8]
-	}
-	filename := fmt.Sprintf("/tmp/session-%s.html", shortID)
+	filename := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s.html", shortID(sid)))
 	if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
 		return err
 	}
@@ -228,25 +220,30 @@ func runExport(adapter adapters.Adapter, sid string) error {
 
 	// Open in browser (cross-platform)
 	switch {
-	case fileExists("/usr/bin/open"): // macOS
+	case commandExists("open"): // macOS
 		exec.Command("open", filename).Start()
 	case commandExists("xdg-open"): // Linux
 		exec.Command("xdg-open", filename).Start()
 	case commandExists("wslview"): // WSL
-		exec.Command("wslview", filename).Start()
+		// Convert Unix path to Windows path for WSL
+		if winPath, err := exec.Command("wslpath", "-w", filename).Output(); err == nil {
+			exec.Command("wslview", strings.TrimSpace(string(winPath))).Start()
+		}
 	}
 
 	return nil
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func commandExists(cmd string) bool {
 	_, err := exec.LookPath(cmd)
 	return err == nil
+}
+
+func shortID(sid string) string {
+	if len(sid) > 8 {
+		return sid[:8]
+	}
+	return sid
 }
 
 func runResetHeader(port, header string) {
@@ -345,18 +342,13 @@ func runOpen(adapter adapters.Adapter, sid string) error {
 		return fmt.Errorf("cannot access session file: %w", err)
 	}
 
-	shortID := sid
-	if len(shortID) > 8 {
-		shortID = shortID[:8]
-	}
-
+	short := shortID(sid)
 	var formattedPath string
 	var err error
-
 	if adapter.Name() == "claude" {
-		formattedPath, err = formatJSONL(sessionPath, shortID)
+		formattedPath, err = formatJSONL(sessionPath, short)
 	} else {
-		formattedPath, err = formatJSON(sessionPath, shortID)
+		formattedPath, err = formatJSON(sessionPath, short)
 	}
 
 	if err != nil {
@@ -415,7 +407,7 @@ func formatJSONL(inputPath string, shortID string) (string, error) {
 		formatted = append(formatted, string(pretty))
 	}
 
-	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.jsonl", shortID)
+	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s-formatted.jsonl", shortID))
 	if err := os.WriteFile(outputPath, []byte(strings.Join(formatted, "\n\n")), 0644); err != nil {
 		return "", err
 	}
@@ -494,7 +486,7 @@ func formatJSON(inputPath string, shortID string) (string, error) {
 		return "", err
 	}
 
-	outputPath := fmt.Sprintf("/tmp/session-%s-formatted.json", shortID)
+	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("session-%s-formatted.json", shortID))
 	if err := os.WriteFile(outputPath, output, 0644); err != nil {
 		return "", err
 	}

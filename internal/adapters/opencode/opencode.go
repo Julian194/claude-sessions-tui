@@ -15,6 +15,29 @@ import (
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 )
 
+// SessionType identifies the kind of OpenCode session
+type SessionType int
+
+const (
+	SessionTypeMain   SessionType = iota // Regular user session
+	SessionTypeAgent                     // Agent/subagent session (has parentID)
+	SessionTypeBranch                    // Branched session (has parentID, no agent marker)
+)
+
+func (t SessionType) String() string {
+	switch t {
+	case SessionTypeMain:
+		return "main"
+	case SessionTypeAgent:
+		return "agent"
+	case SessionTypeBranch:
+		return "branch"
+	default:
+		return "unknown"
+	}
+}
+
+// Adapter implements the OpenCode session adapter
 type Adapter struct {
 	dataDir      string
 	cacheDir     string
@@ -517,15 +540,35 @@ func generateID(prefix string) string {
 }
 
 type sessionData struct {
-	ID        string `json:"id"`
-	ProjectID string `json:"projectID"`
-	Directory string `json:"directory"`
-	ParentID  string `json:"parentID,omitempty"`
-	Title     string `json:"title"`
-	Time      struct {
+	ID         string `json:"id"`
+	ProjectID  string `json:"projectID"`
+	Directory  string `json:"directory"`
+	ParentID   string `json:"parentID,omitempty"`
+	Title      string `json:"title"`
+	Permission []struct {
+		Permission string `json:"permission"`
+		Action     string `json:"action"`
+	} `json:"permission,omitempty"`
+	Time struct {
 		Created int64 `json:"created"`
 		Updated int64 `json:"updated"`
 	} `json:"time"`
+}
+
+// classifySession determines the type of an OpenCode session
+func classifySession(session *sessionData) SessionType {
+	if session.ParentID == "" {
+		return SessionTypeMain
+	}
+
+	// Sessions with parentID and permissions are typically agents
+	// Agents have restricted permissions (deny todowrite, task, etc.)
+	if len(session.Permission) > 0 {
+		return SessionTypeAgent
+	}
+
+	// Sessions with parentID but no permissions are user-created branches
+	return SessionTypeBranch
 }
 
 type messageData struct {

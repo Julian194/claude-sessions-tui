@@ -6,8 +6,9 @@ A terminal UI for browsing, searching, and exporting [Claude Code](https://claud
 
 ## Features
 
-- **Browse sessions** with fuzzy search via fzf
+- **Browse sessions** with built-in fuzzy search
 - **Preview pane** showing topics, files touched, and stats
+- **Quick filters** - Today (1), This week (2), Project (3), High cost (4)
 - **Resume sessions** directly from the TUI
 - **Branch sessions** - create a copy of any session to explore alternative paths
 - **Export to HTML** with dark/light themes, search, and syntax highlighting
@@ -36,7 +37,6 @@ sudo mv claude-sessions /usr/local/bin/
 
 ### Dependencies
 
-- [fzf](https://github.com/junegunn/fzf) - fuzzy finder (required)
 - [Claude Code](https://claude.ai/code) - the AI coding assistant
 
 ## Usage
@@ -51,14 +51,23 @@ claude-sessions
 
 | Key | Action |
 |-----|--------|
+| `↑/k`, `↓/j` | Navigate sessions |
+| `Tab` | Switch pane (list/preview) |
+| `/` | Search/filter sessions |
 | `Enter` | Resume selected session |
-| `Ctrl-B` | Branch session (create copy and resume) |
-| `Ctrl-O` | Export session as HTML |
-| `Ctrl-Y` | Copy session as LLM-optimized Markdown |
-| `Ctrl-R` | Refresh session list |
-| `↑/↓` | Navigate sessions |
-| Type | Filter sessions |
-| `Esc` | Exit |
+| `Ctrl+B` | Branch session (create copy and resume) |
+| `Ctrl+E` | Open session file in VS Code |
+| `Ctrl+O` | Export session as HTML |
+| `Ctrl+Y` | Copy session as Markdown |
+| `Ctrl+R` | Refresh session cache |
+| `Ctrl+A` | Toggle activity heatmap |
+| `1-4` | Quick filters (Today/Week/Project/Cost) |
+| `Esc` | Clear active filter |
+| `Space` | Toggle expand/collapse parent session |
+| `→/l`, `←/h` | Expand/collapse children |
+| `p` | Pin/unpin session |
+| `?` | Show help overlay |
+| `q`, `Ctrl+C` | Quit |
 
 ### Subcommands
 
@@ -77,9 +86,6 @@ claude-sessions export <session-id>
 
 # Copy session as Markdown to clipboard
 claude-sessions copy-md <session-id>
-
-# Preview a session (used internally by fzf)
-claude-sessions preview <session-id>
 
 # Show help
 claude-sessions help
@@ -122,8 +128,8 @@ Claude Code stores sessions as JSONL files in `~/.claude/projects/`. Each projec
 The TUI:
 1. Scans all session files and extracts metadata
 2. Caches results for fast subsequent launches
-3. Uses fzf for interactive filtering
-4. Can resume sessions or export them
+3. Provides interactive filtering, pinning, and quick filters
+4. Can resume sessions, branch them, or export them
 
 ## Architecture
 
@@ -134,10 +140,11 @@ cmd/sessions/        # CLI entry point
 internal/
   adapters/          # Provider implementations
     claude/          # Claude Code adapter
+    opencode/        # OpenCode adapter
   cache/             # Session cache management
   export/            # HTML/Markdown export
   stats/             # Token counting and cost calculation
-  tui/               # fzf integration
+  tui/               # Bubble Tea TUI
 ```
 
 ## Development

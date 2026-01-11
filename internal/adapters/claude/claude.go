@@ -16,6 +16,34 @@ import (
 	"github.com/Julian194/claude-sessions-tui/internal/adapters"
 )
 
+// SessionType identifies the kind of Claude Code session
+type SessionType int
+
+const (
+	SessionTypeMain     SessionType = iota // Regular user session (UUID.jsonl)
+	SessionTypeAgent                       // Agent/subagent session (has agentId)
+	SessionTypeWarmup                      // Cache warmup session (first message is "Warmup")
+	SessionTypeBranch                      // Branched from another session
+	SessionTypeEmpty                       // No user/assistant messages
+)
+
+func (t SessionType) String() string {
+	switch t {
+	case SessionTypeMain:
+		return "main"
+	case SessionTypeAgent:
+		return "agent"
+	case SessionTypeWarmup:
+		return "warmup"
+	case SessionTypeBranch:
+		return "branch"
+	case SessionTypeEmpty:
+		return "empty"
+	default:
+		return "unknown"
+	}
+}
+
 // Adapter implements the Claude Code session adapter
 type Adapter struct {
 	dataDir      string
@@ -124,18 +152,11 @@ func (a *Adapter) GetSessionFile(id string) string {
 	}
 	a.pathsMu.RUnlock()
 
-	// Parse composite ID for agent sessions
-	var searchPattern string
+	// Parse composite ID for agent sessions (parent-session-id/agent-xxx)
+	searchPattern := id + ".jsonl"
 	if strings.Contains(id, "/") {
-		// Composite ID: parent-session-id/agent-xxx
 		parts := strings.SplitN(id, "/", 2)
-		if len(parts) == 2 {
-			searchPattern = parts[1] + ".jsonl"
-		} else {
-			searchPattern = id + ".jsonl"
-		}
-	} else {
-		searchPattern = id + ".jsonl"
+		searchPattern = parts[1] + ".jsonl"
 	}
 
 	// Cache miss - search for the session file across all project directories
@@ -169,8 +190,57 @@ func (a *Adapter) GetSessionFile(id string) string {
 	return found
 }
 
-// ErrNoMessages indicates a session has no user/assistant messages (metadata-only)
-var ErrNoMessages = fmt.Errorf("session has no messages")
+// Session classification errors
+var (
+	ErrNoMessages    = fmt.Errorf("session has no messages")
+	ErrWarmupSession = fmt.Errorf("warmup session")
+)
+
+// classifySession determines the type of a session based on its records
+func classifySession(records []record) SessionType {
+	if len(records) == 0 {
+		return SessionTypeEmpty
+	}
+
+	// Check for agent session (has agentId in first record)
+	isAgent := records[0].AgentID != ""
+
+	// Check for warmup (first user message is exactly "Warmup")
+	for _, r := range records {
+		if r.Type == "user" && r.Message.Role == "user" {
+			content := strings.TrimSpace(extractTextContent(r.Message.Content))
+			if content == "Warmup" {
+				return SessionTypeWarmup
+			}
+			break
+		}
+	}
+
+	// Check for branch (has parentSession in any record)
+	for _, r := range records {
+		if r.Type == "branch" && r.ParentSession != "" {
+			return SessionTypeBranch
+		}
+	}
+
+	// Check if has actual messages
+	hasMessages := false
+	for _, r := range records {
+		if r.Type == "user" || r.Type == "assistant" {
+			hasMessages = true
+			break
+		}
+	}
+	if !hasMessages {
+		return SessionTypeEmpty
+	}
+
+	if isAgent {
+		return SessionTypeAgent
+	}
+
+	return SessionTypeMain
+}
 
 // ExtractMeta extracts metadata from a session for cache building
 func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
@@ -184,51 +254,54 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 		return nil, err
 	}
 
-	// Extract project from path
-	project := extractProject(path)
+	records, err := a.parseFile(path)
+	if err != nil {
+		return nil, err
+	}
 
-	// Parse file for summary and parent session
+	// Classify the session type
+	sessionType := classifySession(records)
+
+	// Filter out non-displayable session types
+	switch sessionType {
+	case SessionTypeWarmup:
+		return nil, ErrWarmupSession
+	case SessionTypeEmpty:
+		return nil, ErrNoMessages
+	}
+
+	// Extract metadata
+	project := ""
 	summary := ""
 	parentSID := ""
-	hasMessages := false
-	records, err := a.parseFile(path)
-	if err == nil {
-		// Check if this is an agent session (first record has agentId)
-		isAgent := false
-		for _, r := range records {
-			if r.AgentID != "" {
-				isAgent = true
-				// For agent sessions, the sessionId field points to parent
-				if r.SessionID != "" {
-					parentSID = r.SessionID
-				}
-				break
-			}
-		}
 
-		for _, r := range records {
-			if r.Type == "summary" && summary == "" {
-				summary = r.Summary
-			}
-			// For non-agent sessions, check for branch metadata
-			if !isAgent && r.Type == "branch" && r.ParentSession != "" {
-				parentSID = r.ParentSession
-			}
-			// Check if session has actual messages
-			if r.Type == "user" || r.Type == "assistant" {
-				hasMessages = true
-			}
-		}
+	// Get parent session ID for agents
+	if sessionType == SessionTypeAgent && len(records) > 0 && records[0].SessionID != "" {
+		parentSID = records[0].SessionID
+	}
 
-		// Fallback to first user message if no summary
-		if summary == "" {
-			summary = extractFirstUserMessage(records)
+	// Extract summary, branch info, and working directory
+	for _, r := range records {
+		if r.Type == "summary" && summary == "" {
+			summary = r.Summary
+		}
+		if r.Type == "branch" && r.ParentSession != "" {
+			parentSID = r.ParentSession
+		}
+		if r.Cwd != "" && project == "" {
+			// Use the actual working directory for a clean project name
+			project = filepath.Base(r.Cwd)
 		}
 	}
 
-	// Skip metadata-only sessions (no actual conversation)
-	if !hasMessages {
-		return nil, ErrNoMessages
+	// Fallback to path-based extraction if no cwd found
+	if project == "" {
+		project = extractProject(path)
+	}
+
+	// Fallback to first user message if no summary
+	if summary == "" {
+		summary = extractFirstUserMessage(records)
 	}
 
 	return &adapters.SessionMeta{
@@ -672,18 +745,26 @@ func (a *Adapter) parseFile(path string) ([]record, error) {
 
 func extractProject(path string) string {
 	// Path format: .../projects/{project-name}/{session}.jsonl
+	// Or for agents: .../projects/{project-name}/{parent-session}/subagents/{agent}.jsonl
 	dir := filepath.Dir(path)
 	project := filepath.Base(dir)
 
-	// Claude encodes full paths as project names: -Users-julian-code-foo
-	// Convert back to readable format: code/foo
-	re := regexp.MustCompile(`^-Users-[^-]+-`)
-	if re.MatchString(project) {
-		// This is a path-encoded project name, convert dashes to slashes
-		project = re.ReplaceAllString(project, "")
-		project = strings.ReplaceAll(project, "-", "/")
+	// For agent sessions, go up to the project directory
+	if project == "subagents" {
+		// Go up two levels: subagents -> parent-session -> project
+		parentDir := filepath.Dir(dir)        // parent-session dir
+		projectDir := filepath.Dir(parentDir) // project dir
+		project = filepath.Base(projectDir)
 	}
-	// Otherwise keep original name (e.g., "my-project" stays as-is)
+
+	// Claude encodes full paths as project names: -Users-julian-code-foo or -home-user-code-foo
+	// Just extract the last directory component for a clean display
+	if strings.HasPrefix(project, "-") {
+		// Decode: replace dashes with slashes, strip leading dash
+		decoded := strings.ReplaceAll(project[1:], "-", "/")
+		// Return just the last component (the actual project directory)
+		project = filepath.Base(decoded)
+	}
 
 	return project
 }

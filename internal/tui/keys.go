@@ -1,0 +1,143 @@
+package tui
+
+import "github.com/charmbracelet/bubbles/key"
+
+// KeyMap defines all key bindings
+type KeyMap struct {
+	// Navigation
+	Up     key.Binding
+	Down   key.Binding
+	Tab    key.Binding
+	Filter key.Binding
+
+	// Actions
+	Select  key.Binding
+	Export  key.Binding
+	CopyMD  key.Binding
+	Open    key.Binding
+	Branch  key.Binding
+	Refresh key.Binding
+	Pin     key.Binding
+
+	// Quick filters
+	FilterToday   key.Binding
+	FilterWeek    key.Binding
+	FilterProject key.Binding
+	FilterClear   key.Binding
+
+	// Toggle
+	ToggleActivity key.Binding
+	ToggleExpand   key.Binding // Toggle expand/collapse with space
+	Expand         key.Binding // Expand with right arrow
+	Collapse       key.Binding // Collapse with left arrow
+
+	// Help
+	Help key.Binding
+
+	// Quit
+	Quit key.Binding
+}
+
+// DefaultKeyMap returns the default key bindings
+func DefaultKeyMap() KeyMap {
+	return KeyMap{
+		Up: key.NewBinding(
+			key.WithKeys("up", "k"),
+			key.WithHelp("↑/k", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down", "j"),
+			key.WithHelp("↓/j", "down"),
+		),
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "switch pane"),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
+		),
+		Select: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "resume"),
+		),
+		Export: key.NewBinding(
+			key.WithKeys("ctrl+o"),
+			key.WithHelp("ctrl+o", "export"),
+		),
+		CopyMD: key.NewBinding(
+			key.WithKeys("ctrl+y"),
+			key.WithHelp("ctrl+y", "copy md"),
+		),
+		Open: key.NewBinding(
+			key.WithKeys("ctrl+e"),
+			key.WithHelp("ctrl+e", "open in vscode"),
+		),
+		Branch: key.NewBinding(
+			key.WithKeys("ctrl+b"),
+			key.WithHelp("ctrl+b", "branch"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r", "refresh"),
+		),
+		Pin: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "pin"),
+		),
+		FilterToday: key.NewBinding(
+			key.WithKeys("1"),
+			key.WithHelp("1", "today"),
+		),
+		FilterWeek: key.NewBinding(
+			key.WithKeys("2"),
+			key.WithHelp("2", "week"),
+		),
+		FilterProject: key.NewBinding(
+			key.WithKeys("3"),
+			key.WithHelp("3", "project"),
+		),
+		FilterClear: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "clear filter"),
+		),
+		ToggleActivity: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+			key.WithHelp("ctrl+a", "activity"),
+		),
+		ToggleExpand: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "expand"),
+		),
+		Expand: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("→/l", "expand"),
+		),
+		Collapse: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("←/h", "collapse"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "help"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
+		),
+	}
+}
+
+// ShortHelp returns a short help string
+func (k KeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Select, k.Export, k.CopyMD, k.Branch, k.Pin, k.Refresh, k.Quit}
+}
+
+// FullHelp returns the full help for all bindings
+func (k KeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Tab, k.Filter},
+		{k.Select, k.Export, k.CopyMD, k.Branch},
+		{k.Pin, k.Refresh, k.ToggleActivity, k.Quit},
+	}
+}

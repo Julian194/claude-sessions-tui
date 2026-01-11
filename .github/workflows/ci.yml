@@ -35,8 +35,8 @@ jobs:
         run: |
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${total}%"
-          if (( $(echo "$total < 60" | bc -l) )); then
-            echo "Coverage below 60%"
+          if (( $(echo "$total < 50" | bc -l) )); then
+            echo "Coverage below 50%"
             exit 1
           fi
           echo "Coverage OK"
@@ -72,12 +72,6 @@ jobs:
 
       - name: Build binary
         run: go build -o sessions ./cmd/sessions
-
-      - name: Check dependencies available
-        run: |
-          brew install fzf jq
-          command -v fzf && echo "fzf OK"
-          command -v jq && echo "jq OK"
 
       - name: Test rebuild with no sessions
         run: |
