@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,31 +58,11 @@ type Model struct {
 	done   bool
 }
 
-// ListItem is the interface for items in our list (date headers or sessions)
-type ListItem interface {
-	list.Item
-	IsHeader() bool
-	IsAgent() bool
-}
-
-// DateHeader represents a date separator in the list
-type DateHeader struct {
-	date  string
-	count int
-}
-
-func (d DateHeader) Title() string       { return d.date }
-func (d DateHeader) Description() string { return fmt.Sprintf("%d sessions", d.count) }
-func (d DateHeader) FilterValue() string { return "" } // Don't filter headers
-func (d DateHeader) IsHeader() bool      { return true }
-func (d DateHeader) IsAgent() bool       { return false }
-
 // SessionItem implements list.Item for cache.Entry
 type SessionItem struct {
 	entry    cache.Entry
 	isPinned bool
 	isAgent  bool
-	depth    int // 0 = root, 1 = agent child
 }
 
 func (s SessionItem) Title() string {
@@ -91,8 +70,8 @@ func (s SessionItem) Title() string {
 	if s.isPinned {
 		prefix = "★ "
 	}
-	if s.depth > 0 {
-		prefix += "  ↳ "
+	if s.isAgent {
+		prefix += "↳ "
 	}
 	return prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
 }
@@ -105,65 +84,18 @@ func (s SessionItem) FilterValue() string {
 	return s.entry.Project + " " + s.entry.Summary + " " + s.entry.SessionID
 }
 
-func (s SessionItem) IsHeader() bool { return false }
-func (s SessionItem) IsAgent() bool  { return s.isAgent }
-
-// CustomDelegate handles rendering of both headers and session items
-type CustomDelegate struct {
-	list.DefaultDelegate
-}
-
-func NewCustomDelegate() CustomDelegate {
-	d := list.NewDefaultDelegate()
-	d.Styles.SelectedTitle = selectedItemStyle
-	d.Styles.SelectedDesc = selectedItemStyle
-	d.Styles.NormalTitle = normalItemStyle
-	d.Styles.NormalDesc = dimItemStyle
-	return CustomDelegate{DefaultDelegate: d}
-}
-
-func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	if listItem, ok := item.(ListItem); ok && listItem.IsHeader() {
-		// Render date header
-		header, _ := item.(DateHeader)
-		str := dateHeaderStyle.Render(fmt.Sprintf("── %s ──", header.date))
-		fmt.Fprint(w, str)
-		return
-	}
-
-	// Check if this is an agent session
-	if listItem, ok := item.(ListItem); ok && listItem.IsAgent() {
-		session := item.(SessionItem)
-		title := session.Title()
-		desc := session.Description()
-
-		if index == m.Index() {
-			title = selectedItemStyle.Render(title)
-			desc = selectedItemStyle.Render(desc)
-		} else {
-			title = agentItemStyle.Render(title)
-			desc = dimItemStyle.Render(desc)
-		}
-		fmt.Fprintf(w, "%s\n%s", title, desc)
-		return
-	}
-
-	// Default rendering for regular sessions
-	d.DefaultDelegate.Render(w, m, index, item)
-}
-
-func (d CustomDelegate) Height() int { return 2 }
-
-func (d CustomDelegate) Spacing() int { return 0 }
-
 // NewModel creates a new TUI model
 func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 	// Load pins
 	pins := NewPins(cacheDir)
 	pins.Load()
 
-	// Create list with custom delegate
-	delegate := NewCustomDelegate()
+	// Create list with default delegate
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = selectedItemStyle
+	delegate.Styles.SelectedDesc = selectedItemStyle
+	delegate.Styles.NormalTitle = normalItemStyle
+	delegate.Styles.NormalDesc = dimItemStyle
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Sessions"
@@ -409,8 +341,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update preview when selection changes
 		if m.list.Index() != oldIndex {
-			// Skip date headers
-			m.skipHeaders()
 			m.updatePreview()
 		}
 	} else {
@@ -422,31 +352,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// skipHeaders moves selection past date headers
-func (m *Model) skipHeaders() {
-	items := m.list.Items()
-	idx := m.list.Index()
-	if idx >= 0 && idx < len(items) {
-		if item, ok := items[idx].(ListItem); ok && item.IsHeader() {
-			// Move to next non-header item
-			for i := idx + 1; i < len(items); i++ {
-				if nextItem, ok := items[i].(ListItem); ok && !nextItem.IsHeader() {
-					m.list.Select(i)
-					return
-				}
-			}
-			// If no next item, try previous
-			for i := idx - 1; i >= 0; i-- {
-				if prevItem, ok := items[i].(ListItem); ok && !prevItem.IsHeader() {
-					m.list.Select(i)
-					return
-				}
-			}
-		}
-	}
-}
-
-// getSelectedSession returns the selected session item (skipping headers)
+// getSelectedSession returns the selected session item
 func (m *Model) getSelectedSession() *SessionItem {
 	selected := m.list.SelectedItem()
 	if selected == nil {
@@ -464,9 +370,14 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	// Calculate pane widths
+	// Calculate pane dimensions (border takes 2 chars each side)
 	listWidth := m.width / 2
-	previewWidth := m.width - listWidth - 1
+	previewWidth := m.width - listWidth
+
+	// Content dimensions (subtract border)
+	listContentWidth := listWidth - 2
+	previewContentWidth := previewWidth - 2
+	contentHeight := m.height - 4
 
 	// Apply borders based on active pane
 	var listPane, previewPane string
@@ -476,21 +387,21 @@ func (m Model) View() string {
 
 	if m.activePane == "list" {
 		listPane = activeBorderStyle.
-			Width(listWidth - 2).
-			Height(m.height - 4).
+			Width(listContentWidth).
+			Height(contentHeight).
 			Render(listContent)
 		previewPane = inactiveBorderStyle.
-			Width(previewWidth - 2).
-			Height(m.height - 4).
+			Width(previewContentWidth).
+			Height(contentHeight).
 			Render(previewContent)
 	} else {
 		listPane = inactiveBorderStyle.
-			Width(listWidth - 2).
-			Height(m.height - 4).
+			Width(listContentWidth).
+			Height(contentHeight).
 			Render(listContent)
 		previewPane = activeBorderStyle.
-			Width(previewWidth - 2).
-			Height(m.height - 4).
+			Width(previewContentWidth).
+			Height(contentHeight).
 			Render(previewContent)
 	}
 
@@ -520,99 +431,53 @@ func (m Model) View() string {
 // updateLayout recalculates component sizes
 func (m *Model) updateLayout() {
 	listWidth := m.width / 2
-	previewWidth := m.width - listWidth - 3
+	previewWidth := m.width - listWidth
 
+	// List content area (inside border: -2 for border, -2 for padding)
 	m.list.SetSize(listWidth-4, m.height-6)
-	m.preview.Width = previewWidth - 2
+
+	// Preview viewport (inside border)
+	m.preview.Width = previewWidth - 4
 	m.preview.Height = m.height - 6
 }
 
-// updateListItems refreshes the list with grouped and sorted sessions
+// updateListItems refreshes the list with sorted sessions
 func (m *Model) updateListItems() {
-	// Apply filters first
-	filtered := m.applyFilters(m.sessions)
+	// Apply filters first - make a copy to avoid modifying original
+	filtered := make([]cache.Entry, len(m.sessions))
+	copy(filtered, m.sessions)
+	filtered = m.applyFilters(filtered)
 
-	// Separate main sessions and agent sessions
-	mainSessions := make([]cache.Entry, 0)
-	agentsByParent := make(map[string][]cache.Entry)
-
-	for _, entry := range filtered {
-		if entry.ParentSID != "" && entry.ParentSID != "-" {
-			agentsByParent[entry.ParentSID] = append(agentsByParent[entry.ParentSID], entry)
-		} else {
-			mainSessions = append(mainSessions, entry)
-		}
-	}
-
-	// Sort main sessions: pinned first, then by date
-	sort.SliceStable(mainSessions, func(i, j int) bool {
-		iPinned := m.pins.IsPinned(mainSessions[i].SessionID)
-		jPinned := m.pins.IsPinned(mainSessions[j].SessionID)
+	// Sort sessions: pinned first, then by date (newest first)
+	sort.Slice(filtered, func(i, j int) bool {
+		iPinned := m.pins.IsPinned(filtered[i].SessionID)
+		jPinned := m.pins.IsPinned(filtered[j].SessionID)
 		if iPinned != jPinned {
 			return iPinned
 		}
-		return mainSessions[i].Date.After(mainSessions[j].Date)
+		return filtered[i].Date.After(filtered[j].Date)
 	})
 
-	// Sort agents by date within each parent
-	for parentID := range agentsByParent {
-		agents := agentsByParent[parentID]
-		sort.SliceStable(agents, func(i, j int) bool {
-			return agents[i].Date.After(agents[j].Date)
-		})
-		agentsByParent[parentID] = agents
-	}
-
-	// Build list with date headers and nested agents
+	// Build list items
 	var items []list.Item
-	currentDate := ""
-	dateCount := 0
-
-	for _, entry := range mainSessions {
-		entryDate := entry.Date.Format("Monday, January 2, 2006")
-
-		// Add date header if date changed
-		if entryDate != currentDate {
-			if currentDate != "" && dateCount > 0 {
-				// Insert header for previous date at correct position
-			}
-			items = append(items, DateHeader{date: entryDate, count: 0})
-			currentDate = entryDate
-			dateCount = 0
-		}
-		dateCount++
-
-		// Add main session
+	for _, entry := range filtered {
+		isAgent := entry.ParentSID != "" && entry.ParentSID != "-"
 		items = append(items, SessionItem{
 			entry:    entry,
 			isPinned: m.pins.IsPinned(entry.SessionID),
-			isAgent:  false,
-			depth:    0,
+			isAgent:  isAgent,
 		})
-
-		// Add nested agent sessions
-		if agents, ok := agentsByParent[entry.SessionID]; ok {
-			for _, agent := range agents {
-				items = append(items, SessionItem{
-					entry:    agent,
-					isPinned: m.pins.IsPinned(agent.SessionID),
-					isAgent:  true,
-					depth:    1,
-				})
-			}
-		}
 	}
 
 	m.list.SetItems(items)
-
-	// Skip to first non-header item
-	m.skipHeaders()
+	m.list.Select(0) // Ensure we start at top
+	m.updatePreview()
 }
 
 // applyFilters filters sessions based on current filter mode
 func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
-	if m.filterMode == FilterNone {
-		return sessions
+	if m.filterMode == FilterNone || len(sessions) == 0 {
+		return sessions // Already a copy from updateListItems
 	}
 
 	var filtered []cache.Entry
@@ -634,8 +499,6 @@ func (m *Model) applyFilters(sessions []cache.Entry) []cache.Entry {
 				filtered = append(filtered, entry)
 			}
 		case FilterHighCost:
-			// Include all for now, filter on stats (would need adapter call)
-			// For simplicity, include sessions - could be enhanced
 			filtered = append(filtered, entry)
 		default:
 			filtered = append(filtered, entry)
