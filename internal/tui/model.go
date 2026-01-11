@@ -193,29 +193,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 	}
 
-	// Route updates to active pane
-	if m.activePane == "list" {
-		var cmd tea.Cmd
-		oldIndex := m.list.Index()
-		m.list, cmd = m.list.Update(msg)
-		cmds = append(cmds, cmd)
-
-		// Skip date headers (not selectable)
-		newIndex := m.list.Index()
-		if _, isHeader := m.list.SelectedItem().(DateHeaderItem); isHeader {
-			m.skipDateHeader(oldIndex, newIndex)
-		}
-
-		// Debounced preview update when selection changes
-		if m.list.Index() != oldIndex {
-			cmds = append(cmds, requestPreviewUpdate(m.list.Index()))
-		}
-	} else {
-		var cmd tea.Cmd
-		m.preview, cmd = m.preview.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
 	return m, tea.Batch(cmds...)
 }
 
@@ -334,7 +311,31 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	// Pass unhandled keys to the active pane
+	var cmds []tea.Cmd
+	if m.activePane == "list" {
+		var cmd tea.Cmd
+		oldIndex := m.list.Index()
+		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
+
+		// Skip date headers (not selectable)
+		newIndex := m.list.Index()
+		if _, isHeader := m.list.SelectedItem().(DateHeaderItem); isHeader {
+			m.skipDateHeader(oldIndex, newIndex)
+		}
+
+		// Debounced preview update when selection changes
+		if m.list.Index() != oldIndex {
+			cmds = append(cmds, requestPreviewUpdate(m.list.Index()))
+		}
+	} else {
+		var cmd tea.Cmd
+		m.preview, cmd = m.preview.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
 }
 
 // Session action handlers
