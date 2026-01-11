@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/Julian194/claude-sessions-tui/internal/heatmap"
 )
 
 // View implements tea.Model
@@ -63,8 +65,11 @@ func (m Model) View() string {
 	case FilterProject:
 		filterIndicator = " [" + m.filterValue + "]"
 	}
+	if m.showActivity {
+		filterIndicator += " [Activity]"
+	}
 
-	helpText := "?:help  enter:resume  space:expand  p:pin  1-4:filter  ctrl+o:export  ctrl+y:copy  q:quit"
+	helpText := "?:help  enter:resume  p:pin  1-4:filter  ctrl+a:activity  ctrl+o:export  ctrl+y:copy  q:quit"
 	if m.filterMode != FilterNone {
 		helpText = "esc:clear  " + helpText
 	}
@@ -104,7 +109,7 @@ func (m *Model) updatePreview() {
 	}
 
 	if m.showActivity {
-		m.preview.SetContent("Activity heatmap (TODO)")
+		m.preview.SetContent(heatmap.RenderFromCache(m.sessions, m.preview.Width, m.activityYear))
 		return
 	}
 

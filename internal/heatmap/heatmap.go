@@ -2,65 +2,70 @@ package heatmap
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/Julian194/claude-sessions-tui/internal/cache"
-	"golang.org/x/term"
 )
 
-// True color (24-bit RGB) matching GitHub's contribution graph
-var levelColors = []string{
-	"\033[38;2;22;27;34m",  // level 0: #161b22 (empty/background)
-	"\033[38;2;14;68;41m",  // level 1: #0e4429 (dark green)
-	"\033[38;2;0;109;50m",  // level 2: #006d32 (medium-dark)
-	"\033[38;2;38;166;65m", // level 3: #26a641 (medium)
-	"\033[38;2;57;211;83m", // level 4: #39d353 (bright green)
+// GitHub-style contribution colors
+var levelStyles = []lipgloss.Style{
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#161b22")), // level 0: empty
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#0e4429")), // level 1: low
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#006d32")), // level 2: medium-low
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#26a641")), // level 3: medium
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#39d353")), // level 4: high
 }
 
-const reset = "\033[0m"
-const dim = "\033[2m"
+var (
+	dimStyle   = lipgloss.NewStyle().Faint(true)
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#39d353"))
+)
+
 const block = "■"
 
-func RenderFromCache(entries []cache.Entry, weeks int) string {
+// RenderFromCache renders a heatmap from cache entries for a specific year
+func RenderFromCache(entries []cache.Entry, width int, year int) string {
 	activity := make(map[string]int)
 	for _, e := range entries {
-		dateKey := e.Date.Format("2006-01-02")
-		activity[dateKey]++
+		if e.Date.Year() == year {
+			dateKey := e.Date.Format("2006-01-02")
+			activity[dateKey]++
+		}
 	}
 
-	if weeks <= 0 {
-		weeks = calculateMaxWeeks()
-	}
-
-	return Render(activity, weeks)
+	weeks := calculateWeeks(width)
+	return Render(activity, weeks, year)
 }
 
-func calculateMaxWeeks() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || width <= 0 {
-		width = 80
+func calculateWeeks(width int) int {
+	if width <= 0 {
+		width = 60
 	}
-
-	maxWeeks := (width - 6) / 2
+	// Account for day labels (4 chars) and spacing (each week = 2 chars)
+	maxWeeks := (width - 5) / 2
 	if maxWeeks > 52 {
 		maxWeeks = 52
 	}
-	if maxWeeks < 12 {
-		maxWeeks = 12
+	if maxWeeks < 8 {
+		maxWeeks = 8
 	}
 	return maxWeeks
 }
 
-func Render(activity map[string]int, weeks int) string {
+// Render creates a GitHub-style activity heatmap
+func Render(activity map[string]int, maxWeeks int, year int) string {
 	var sb strings.Builder
 
 	today := time.Now()
-	year := today.Year()
+
+	// Calculate grid boundaries for the year
 	jan1 := time.Date(year, 1, 1, 0, 0, 0, 0, today.Location())
 	dec31 := time.Date(year, 12, 31, 0, 0, 0, 0, today.Location())
 
+	// Align to week boundaries (Monday start)
 	startOffset := int(jan1.Weekday())
 	if startOffset == 0 {
 		startOffset = 7
@@ -73,30 +78,40 @@ func Render(activity map[string]int, weeks int) string {
 	}
 	end := dec31.AddDate(0, 0, 7-endOffset)
 
-	weeks = int(end.Sub(start).Hours()/24/7) + 1
+	totalWeeks := int(end.Sub(start).Hours()/24/7) + 1
 
+	// Limit to maxWeeks, showing from start of year
+	weeks := totalWeeks
+	if weeks > maxWeeks {
+		weeks = maxWeeks
+	}
+
+	// Title
+	sb.WriteString(titleStyle.Render(fmt.Sprintf("Activity %d", year)))
+	sb.WriteString("\n\n")
+
+	// Month header
 	sb.WriteString(renderMonthHeader(start, weeks, year))
 
-	days := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+	// Grid
+	days := []string{"Mon", "   ", "Wed", "   ", "Fri", "   ", "   "}
 	maxCount := findMax(activity)
 
 	for d := 0; d < 7; d++ {
-		if d == 0 || d == 2 || d == 4 {
-			sb.WriteString(fmt.Sprintf("%s ", days[d]))
-		} else {
-			sb.WriteString("    ")
-		}
+		sb.WriteString(dimStyle.Render(days[d]) + " ")
 
 		for w := 0; w < weeks; w++ {
 			date := start.AddDate(0, 0, 7*w+d)
 
+			// Skip dates outside current year
 			if date.Year() != year {
 				sb.WriteString("  ")
 				continue
 			}
 
+			// Future dates show as empty (level 0)
 			if date.After(today) {
-				sb.WriteString("  ")
+				sb.WriteString(levelStyles[0].Render(block) + " ")
 				continue
 			}
 
@@ -104,30 +119,36 @@ func Render(activity map[string]int, weeks int) string {
 			count := activity[dateKey]
 			level := countToLevel(count, maxCount)
 
-			sb.WriteString(levelColors[level])
-			sb.WriteString(block + " ")
-			sb.WriteString(reset)
+			sb.WriteString(levelStyles[level].Render(block) + " ")
 		}
 		sb.WriteString("\n")
 	}
 
+	// Stats
 	total := 0
 	for _, count := range activity {
 		total += count
 	}
-	sb.WriteString(fmt.Sprintf("\n%s%d sessions in %d%s\n", dim, total, year, reset))
+	sb.WriteString("\n")
+	sb.WriteString(dimStyle.Render(fmt.Sprintf("%d sessions in %d", total, year)))
+	sb.WriteString("\n\n")
 
-	sb.WriteString(fmt.Sprintf("\n%sLess%s ", dim, reset))
-	for _, c := range levelColors {
-		sb.WriteString(c + block + " " + reset)
+	// Legend
+	sb.WriteString(dimStyle.Render("Less "))
+	for _, style := range levelStyles {
+		sb.WriteString(style.Render(block) + " ")
 	}
-	sb.WriteString(fmt.Sprintf("%sMore%s", dim, reset))
+	sb.WriteString(dimStyle.Render("More"))
+	sb.WriteString("\n\n")
+
+	// Navigation hint
+	sb.WriteString(dimStyle.Render("← prev year    → next year    Ctrl+A close"))
 
 	return sb.String()
 }
 
 func renderMonthHeader(start time.Time, weeks int, year int) string {
-	header := make([]byte, 5+weeks*2)
+	header := make([]byte, 4+weeks*2)
 	for i := range header {
 		header[i] = ' '
 	}
@@ -142,7 +163,7 @@ func renderMonthHeader(start time.Time, weeks int, year int) string {
 
 		month := int(weekStart.Month())
 		if month != currentMonth {
-			pos := 5 + w*2
+			pos := 4 + w*2
 			if pos+3 <= len(header) {
 				copy(header[pos:pos+3], weekStart.Format("Jan"))
 			}
@@ -150,7 +171,7 @@ func renderMonthHeader(start time.Time, weeks int, year int) string {
 		}
 	}
 
-	return string(header) + "\n"
+	return dimStyle.Render(string(header)) + "\n"
 }
 
 func findMax(activity map[string]int) int {

@@ -39,6 +39,7 @@ type Model struct {
 	cacheDir     string
 	activePane   string // "list" or "preview"
 	showActivity bool
+	activityYear int // Year to show in heatmap
 	showHelp     bool
 	filterMode   FilterMode
 	filterValue  string // For project filter
@@ -88,17 +89,18 @@ func NewModel(adapter adapters.Adapter, cacheDir string) Model {
 	vp.SetContent("Select a session to preview")
 
 	return Model{
-		list:       l,
-		preview:    vp,
-		pins:       pins,
-		adapter:    adapter,
-		cacheDir:   cacheDir,
-		activePane: "list",
-		keys:       DefaultKeyMap(),
-		filterMode: FilterNone,
-		expanded:   make(map[string]bool),
-		children:   make(map[string][]cache.Entry),
-		childCount: make(map[string]int),
+		list:         l,
+		preview:      vp,
+		pins:         pins,
+		adapter:      adapter,
+		cacheDir:     cacheDir,
+		activePane:   "list",
+		keys:         DefaultKeyMap(),
+		filterMode:   FilterNone,
+		activityYear: time.Now().Year(),
+		expanded:     make(map[string]bool),
+		children:     make(map[string][]cache.Entry),
+		childCount:   make(map[string]int),
 	}
 }
 
@@ -262,6 +264,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Expand):
+		if m.showActivity {
+			// Next year in heatmap (up to current year)
+			if m.activityYear < time.Now().Year() && m.hasSessionsInYear(m.activityYear+1) {
+				m.activityYear++
+				m.updatePreview()
+			}
+			return m, nil
+		}
 		item := m.getSelectedSession()
 		if item != nil && item.isParent && !m.expanded[item.entry.SessionID] {
 			m.expanded[item.entry.SessionID] = true
@@ -270,6 +280,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Collapse):
+		if m.showActivity {
+			// Previous year in heatmap (only if sessions exist)
+			if m.hasSessionsInYear(m.activityYear - 1) {
+				m.activityYear--
+				m.updatePreview()
+			}
+			return m, nil
+		}
 		item := m.getSelectedSession()
 		if item != nil && item.isParent && m.expanded[item.entry.SessionID] {
 			m.expanded[item.entry.SessionID] = false
@@ -436,6 +454,15 @@ func (m *Model) toggleFilter(mode FilterMode, label string) {
 		m.message = "Filter: " + label
 	}
 	m.updateListItems()
+}
+
+func (m *Model) hasSessionsInYear(year int) bool {
+	for _, s := range m.sessions {
+		if s.Date.Year() == year {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) skipDateHeader(oldIndex, newIndex int) {

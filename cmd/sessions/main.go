@@ -180,7 +180,7 @@ func runActivity(adapter adapters.Adapter, cacheDir string) error {
 		}
 	}
 
-	fmt.Println(heatmap.RenderFromCache(entries, 0))
+	fmt.Println(heatmap.RenderFromCache(entries, 0, time.Now().Year()))
 	return nil
 }
 
@@ -196,7 +196,7 @@ func runActivityPreview(adapter adapters.Adapter, cacheDir string) error {
 	}
 
 	fmt.Println("\n📊 Activity Heatmap")
-	fmt.Println(heatmap.RenderFromCache(entries, 0))
+	fmt.Println(heatmap.RenderFromCache(entries, 0, time.Now().Year()))
 	return nil
 }
 
