@@ -210,38 +210,15 @@ func (a *Adapter) ExtractMeta(id string) (*adapters.SessionMeta, error) {
 			}
 		}
 
-		// Check for warmup sessions (first user message is just "Warmup" or agent responded with warmup text)
-		isWarmup := false
+		// Check for warmup sessions (first user message is exactly "Warmup")
+		// These are cache-warming agent sessions, not real user tasks
 		for _, r := range records {
 			if r.Type == "user" && r.Message.Role == "user" {
-				content := strings.TrimSpace(extractTextContent(r.Message.Content))
-				if content == "Warmup" {
-					isWarmup = true
+				if strings.TrimSpace(extractTextContent(r.Message.Content)) == "Warmup" {
+					return nil, ErrWarmupSession
 				}
-				break // Only check first user message
+				break
 			}
-		}
-		// Also check if first assistant response is a warmup response (no real task)
-		if !isWarmup {
-			for _, r := range records {
-				if r.Type == "assistant" && r.Message.Role == "assistant" {
-					content := extractTextContent(r.Message.Content)
-					// Check for common warmup response patterns
-					if strings.HasPrefix(content, "I'm ready") ||
-						strings.HasPrefix(content, "I understand you'd like me to warm up") ||
-						strings.HasPrefix(content, "I understand this is a warmup") ||
-						strings.HasPrefix(content, "I understand you're ready") ||
-						strings.HasPrefix(content, "I'll start by exploring") ||
-						strings.HasPrefix(content, "I'll analyze this warmup") ||
-						strings.Contains(content, "This appears to be a warmup") {
-						isWarmup = true
-					}
-					break // Only check first assistant message
-				}
-			}
-		}
-		if isWarmup {
-			return nil, ErrWarmupSession
 		}
 
 		for _, r := range records {
