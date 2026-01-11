@@ -488,10 +488,7 @@ func (m *Model) skipDateHeader(oldIndex, newIndex int) {
 // List and filtering
 
 func (m *Model) updateListItems() {
-	// Apply filters first - make a copy to avoid modifying original
-	filtered := make([]cache.Entry, len(m.sessions))
-	copy(filtered, m.sessions)
-	filtered = m.applyFilters(filtered)
+	filtered := m.applyFilters(m.sessions)
 
 	// Build parent-child relationships
 	m.children = make(map[string][]cache.Entry)

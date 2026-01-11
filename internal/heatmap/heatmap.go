@@ -45,14 +45,8 @@ func calculateWeeks(width int) int {
 		width = 60
 	}
 	// Account for day labels (4 chars) and spacing (each week = 2 chars)
-	maxWeeks := (width - 5) / 2
-	if maxWeeks > 52 {
-		maxWeeks = 52
-	}
-	if maxWeeks < 8 {
-		maxWeeks = 8
-	}
-	return maxWeeks
+	weeks := (width - 5) / 2
+	return max(8, min(52, weeks))
 }
 
 // Render creates a GitHub-style activity heatmap

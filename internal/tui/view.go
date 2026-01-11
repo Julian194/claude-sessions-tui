@@ -25,30 +25,16 @@ func (m Model) View() string {
 	contentHeight := m.height - 4
 
 	// Apply borders based on active pane
-	var listPane, previewPane string
-
-	listContent := m.list.View()
-	previewContent := m.preview.View()
-
+	listBorder := inactiveBorderStyle
+	previewBorder := inactiveBorderStyle
 	if m.activePane == "list" {
-		listPane = activeBorderStyle.
-			Width(listContentWidth).
-			Height(contentHeight).
-			Render(listContent)
-		previewPane = inactiveBorderStyle.
-			Width(previewContentWidth).
-			Height(contentHeight).
-			Render(previewContent)
+		listBorder = activeBorderStyle
 	} else {
-		listPane = inactiveBorderStyle.
-			Width(listContentWidth).
-			Height(contentHeight).
-			Render(listContent)
-		previewPane = activeBorderStyle.
-			Width(previewContentWidth).
-			Height(contentHeight).
-			Render(previewContent)
+		previewBorder = activeBorderStyle
 	}
+
+	listPane := listBorder.Width(listContentWidth).Height(contentHeight).Render(m.list.View())
+	previewPane := previewBorder.Width(previewContentWidth).Height(contentHeight).Render(m.preview.View())
 
 	// Join panes horizontally
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listPane, previewPane)
