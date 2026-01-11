@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -65,12 +66,14 @@ type Model struct {
 
 // SessionItem implements list.Item for cache.Entry
 type SessionItem struct {
-	entry      cache.Entry
-	isPinned   bool
-	isAgent    bool
-	isParent   bool // Has children
-	isExpanded bool // If parent, is it expanded?
-	childCount int  // Number of children (for parents)
+	entry          cache.Entry
+	isPinned       bool
+	isAgent        bool
+	isParent       bool   // Has children
+	isExpanded     bool   // If parent, is it expanded?
+	childCount     int    // Number of children (for parents)
+	showDateHeader bool   // Show date header above this item
+	dateHeader     string // The date string to show
 }
 
 func (s SessionItem) Title() string {
@@ -92,7 +95,15 @@ func (s SessionItem) Title() string {
 		prefix = "  ↳ " // Indent children
 	}
 
-	title := prefix + s.entry.Date.Format("15:04") + " " + s.entry.Project
+	// Show date header or just time
+	var timeStr string
+	if s.showDateHeader {
+		timeStr = s.dateHeader + " " + s.entry.Date.Format("15:04")
+	} else {
+		timeStr = s.entry.Date.Format("15:04")
+	}
+
+	title := prefix + timeStr + " " + s.entry.Project
 
 	// Show child count for collapsed parents
 	if s.isParent && !s.isExpanded && s.childCount > 0 {
@@ -528,17 +539,25 @@ func (m *Model) updateListItems() {
 
 	// Build list items with parent/child structure
 	var items []list.Item
+	var lastDate string
 	for _, entry := range parentSessions {
 		hasChildren := m.childCount[entry.SessionID] > 0
 		isExpanded := m.expanded[entry.SessionID]
 
+		// Check if we need a date header
+		currentDate := entry.Date.Format("2006-01-02")
+		showHeader := currentDate != lastDate
+		lastDate = currentDate
+
 		items = append(items, SessionItem{
-			entry:      entry,
-			isPinned:   m.pins.IsPinned(entry.SessionID),
-			isAgent:    false,
-			isParent:   hasChildren,
-			isExpanded: isExpanded,
-			childCount: m.childCount[entry.SessionID],
+			entry:          entry,
+			isPinned:       m.pins.IsPinned(entry.SessionID),
+			isAgent:        false,
+			isParent:       hasChildren,
+			isExpanded:     isExpanded,
+			childCount:     m.childCount[entry.SessionID],
+			showDateHeader: showHeader,
+			dateHeader:     formatDateHeader(entry.Date),
 		})
 
 		// Add children if parent is expanded
@@ -698,4 +717,25 @@ func (m Model) Result() *Result {
 		return m.result
 	}
 	return nil
+}
+
+// formatDateHeader returns a friendly date string
+func formatDateHeader(t time.Time) string {
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	date := t.Format("2006-01-02")
+
+	switch date {
+	case today:
+		return "Today"
+	case yesterday:
+		return "Yesterday"
+	default:
+		// Show weekday for this week, otherwise month day
+		if now.Sub(t) < 7*24*time.Hour {
+			return t.Format("Mon")
+		}
+		return t.Format("Jan 2")
+	}
 }
