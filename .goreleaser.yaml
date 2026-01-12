@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: claude-sessions
+    main: ./cmd/sessions
+    binary: claude-sessions
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: Julian194
+    name: claude-sessions-tui
+  draft: false
+  prerelease: auto
+  mode: replace
+  footer: |
+    ## Installation
+
+    ### Homebrew (macOS/Linux)
+    ```bash
+    brew install Julian194/tap/claude-sessions
+    ```
+
+    ### Manual Download
+    Download the appropriate archive for your platform, extract it, and move `claude-sessions` to a directory in your PATH.
+
+    To also use `opencode-sessions`, create a symlink:
+    ```bash
+    ln -s claude-sessions opencode-sessions
+    ```
+
+# Note: Homebrew formula is maintained separately (builds from source)
+# Users can also download pre-built binaries from the GitHub release page
