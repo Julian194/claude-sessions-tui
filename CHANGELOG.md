@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.9] - 2026-01-12
+
+### Added
+
+- improve preview styling and cache cost data
+- improve preview pane styling and date headers
+- integrate activity heatmap with year navigation
+- improve TUI navigation and clipboard handling
+- add inline date headers for first session of each day
+- add collapsible parent/child session grouping
+- add SessionType classification to OpenCode adapter
+- add date headers, nested agents, and quick filters
+- add command to open session files in VS Code with formatting (#20)
+- add thinking traces and tool results to HTML/Markdown export (#21)
+- include agent sessions and improve summary extraction (#23)
+
+### Fixed
+
+- show page numbers instead of dots in pagination
+- always check for new sessions on startup
+- cross-platform compatibility and heatmap improvements
+- pass unhandled keys to list component for navigation
+- use session cwd for clean project names
+- filter warmup sessions and fix sorting
+- add cross-platform clipboard support and Linux notifications (#22)
+
 ## [0.2.8] - 2025-12-23
 
 ### Changed
