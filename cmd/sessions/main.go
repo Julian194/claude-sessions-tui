@@ -278,8 +278,10 @@ func runCopyMD(adapter adapters.Adapter, sid string) error {
 		clipboardCmd = []string{"xclip", "-selection", "clipboard"}
 	case commandExists("xsel"):
 		clipboardCmd = []string{"xsel", "--clipboard", "--input"}
+	case commandExists("clip.exe"):
+		clipboardCmd = []string{"clip.exe"}
 	default:
-		fmt.Println("No clipboard tool found (need pbcopy, wl-copy, xclip, or xsel)")
+		fmt.Println("No clipboard tool found (need pbcopy, wl-copy, xclip, xsel, or clip.exe)")
 		fmt.Print(md)
 		return nil
 	}

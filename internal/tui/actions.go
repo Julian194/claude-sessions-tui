@@ -101,6 +101,8 @@ func (m Model) copyMarkdown(sid string) tea.Cmd {
 			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xclip -selection clipboard < %s", tmpFile))
 		case commandExists("xsel"): // X11 alternative
 			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("xsel --clipboard --input < %s", tmpFile))
+		case commandExists("clip.exe"): // WSL
+			clipCmd = exec.Command("sh", "-c", fmt.Sprintf("clip.exe < %s", tmpFile))
 		default:
 			return copyMsg{err: fmt.Errorf("no clipboard tool found")}
 		}
