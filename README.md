@@ -35,6 +35,41 @@ go build -o claude-sessions ./cmd/sessions
 sudo mv claude-sessions /usr/local/bin/
 ```
 
+### Windows (WSL)
+
+Claude Code runs on Windows via WSL. The TUI works inside WSL and reads sessions from the Windows host.
+
+**Prerequisites:** WSL2 with Ubuntu (or similar), Claude Code installed on Windows.
+
+1. **Install inside WSL** (Homebrew for Linux or from source):
+   ```bash
+   # Option A: Homebrew
+   brew install julian194/tap/claude-sessions
+
+   # Option B: From source
+   git clone https://github.com/Julian194/claude-sessions-tui.git
+   cd claude-sessions-tui
+   go build -o claude-sessions ./cmd/sessions
+   sudo mv claude-sessions /usr/local/bin/
+   ```
+
+2. **Point to Windows sessions** - add to your `~/.bashrc` or `~/.zshrc`:
+   ```bash
+   export CLAUDE_DIR="/mnt/c/Users/<your-windows-username>/.claude"
+   ```
+
+3. **Clipboard** works out of the box - the TUI uses `clip.exe` which is available in WSL by default.
+
+4. **Browser / HTML export** - install `wslu` for `wslview` to open exports in your Windows browser:
+   ```bash
+   sudo apt install wslu
+   ```
+
+5. **Optional alias:**
+   ```bash
+   alias cs='claude-sessions'
+   ```
+
 ### Dependencies
 
 - [Claude Code](https://claude.ai/code) - the AI coding assistant
